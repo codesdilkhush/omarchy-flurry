@@ -8,18 +8,20 @@ Native Omarchy plugin — QML/JavaScript + Quickshell (Qt Quick) + Hyprland IPC.
 No Python, no Electron, no browser rendering, no helper daemon, no second
 Quickshell instance.
 
-## Status: Phase 0 — research and feasibility only
+## Status: Phase 1 — plugin skeleton
 
-There is **no plugin code yet**. This repository currently contains the Phase 0
-deliverables: the research, the architecture, the decision records, and the
-proof-of-concept probes. Nothing here is installed by Omarchy.
+The plugin installs, loads, and holds a transparent click-through overlay
+surface on every monitor. It draws **no snow yet** — Phase 2 is the simulation
+and the falling-flake layer.
 
 | Area | State |
 |---|---|
 | Feasibility research (source-verified) | done |
 | Architecture, decisions, risks | done |
 | Physics/timing spike (`poc/physics`) | **executed** — `node --test poc/physics/`, 16/16 pass |
-| Input pass-through probe (`poc/overlay`) | **written, not executed** — needs a live Hyprland session |
+| Phase 1 plugin: manifest, service, bar widget, panel | **runs** — `omarchy plugin validate` passes, `qmllint` reports no errors, loads in the live shell, overlay maps and unmaps on mode change, settings round-trip through `shell.json` |
+| Click-through with a real click | **not tested** — the surface is mapped with an empty input mask, but nobody has clicked through it yet |
+| Input pass-through probe (`poc/overlay`) | **written, linted, not executed** — needs a live Hyprland session |
 | Geometry staleness probe (`poc/geometry`) | **written, not executed** — needs a live Hyprland session |
 | Installed-system compatibility (Omarchy/Quickshell/Qt/Hyprland versions, monitors, GPU) | **blocked** — see `docs/COMPATIBILITY.md` §3 |
 
@@ -71,8 +73,7 @@ No additional runtime dependencies are planned.
 
 ## Installation
 
-Not available yet. When Phase 6 lands, installation will be the official
-Omarchy commands and nothing else:
+Development install, using the official commands and nothing else:
 
 ```bash
 omarchy plugin add <this-repo-url>

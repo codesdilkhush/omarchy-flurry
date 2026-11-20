@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "snowglobe",
+  "name": "Snowglobe",
+  "version": "0.1.0",
+  "author": "Saman Shirdel",
+  "description": "Interactive, window-aware snowfall that settles on window tops and the ground, with a persistent snowman builder",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Snowglobe",
+    "description": "Snowfall on your desktop, snow on your windows",
+    "category": "Ambience",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
