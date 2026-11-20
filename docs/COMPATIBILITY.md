@@ -43,23 +43,50 @@ These are facts about the code, not observations of a desktop:
 
 ---
 
-## 3. Unverified (blocked — the Phase 0 machine is a headless Ubuntu container)
+## 3. Environment: observed vs still unverified
 
-Every command in the right-hand column is gathered by `bash poc/env-check.sh`
-except the two interactive probes, which need to be started separately.
+### 3.1 Observed (measured on the target machine, 2026-11-20)
 
-| Item | Why it is unverified | Command to resolve |
+Collected by `bash poc/env-check.sh` plus `hyprctl`/`pacman` in a live session.
+These are recorded outputs, not inferences.
+
+| Component | Observed | Command that produced it |
 |---|---|---|
-| Installed Omarchy version | not installed | `omarchy version` |
-| Installed Quickshell version and build flags | not installed | `qs --version` / `pacman -Q quickshell` |
-| Installed Qt version | not installed (`qmllint` absent) | `qmllint --version` |
-| Installed Hyprland version | not installed | `hyprctl version` |
-| Monitor layout, scaling, rotation, refresh rates | no compositor | `hyprctl monitors -j` |
-| GPU / renderer / frame timing | no compositor | `qs log` frame stats |
-| Click-through actually works on this compositor | needs a live session | `poc/overlay/InputMaskProbe.qml` |
-| Geometry staleness during a drag | needs movable windows | `poc/geometry/GeometryProbe.qml` |
-| Event names emitted during drag/resize | needs a live session | same probe, histogram |
-| Theme token names present in the installed theme | needs installed themes | `~/.local/state/omarchy/current/theme` |
+| Omarchy | `4.5.0-3`, installed at `/usr/share/omarchy` | `omarchy version` |
+| Kernel / arch | `7.2.15-1-omarchy`, x86_64 | `uname -a` |
+| Omarchy shell (Quickshell) | `0.3.2.r7.g2b4501a-1`, revision `2b4501a282689792b62e94f3fb30d8f512324fe6`, reported as *"distributed by Omarchy"* | `qs --version`, `pacman -Q quickshell` |
+| Qt | `qt6-base 6.12.0-3`, `qt6-declarative 6.12.0-2` | `pacman -Q qt6-base qt6-declarative` |
+| Hyprland | `0.56.2-4`, tag `v0.56.2`, commit `efb50993780079460b0cbed1363e2166a2de1d9f` | `hyprctl version` |
+| Session | Hyprland, `XDG_SESSION_TYPE=wayland`, `WAYLAND_DISPLAY=wayland-1` | `env` |
+| Monitor | single `eDP-1`, `1920x1080@60.008`, **`scale=1.25`**, `transform=0`, origin `0,0`, focused | `hyprctl -j monitors` |
+| Open clients | 8 | `hyprctl -j clients` |
+| `qmllint` | **present** at `/usr/lib/qt6/bin/qmllint`, owned by `qt6-declarative 6.12.0-2` — **not on `PATH`** | `pacman -Qo /usr/lib/qt6/bin/qmllint` |
+| `omarchy plugin` verbs | `add clone disable enable list remove update validate` all present | `omarchy plugin --help` |
+| Installed plugins | built-ins across `bar`, `bar-widget`, `service`, `overlay`, `panel` kinds | `omarchy plugin list --json` |
+
+Consequences for the design:
+
+- **Fractional scaling is the default state of the target machine** (`scale=1.25`),
+  so the `devicePixelRatio` rule in §4.1 is exercised on the primary display, not
+  a rare configuration. A 1920-wide logical surface at 1.25 is rendered at 2400
+  physical px; all segment counts must derive from the logical width.
+- **`qmllint` is installed but not on `PATH`.** The Phase 1 gate must invoke
+  `/usr/lib/qt6/bin/qmllint`, not `qmllint`.
+- Qt `6.12.0` confirms the `Commons.Color.*` shadowing constraint is live, not
+  hypothetical.
+- Quickshell is an Omarchy-distributed build (`0.3.2.r7`), so the plugin must not
+  assume a Quickshell newer than 0.3.2.
+
+### 3.2 Still unverified
+
+| Item | Why it is unverified | How to resolve |
+|---|---|---|
+| GPU / renderer / frame timing | `hyprctl -j devices` returned no `.gpus` entries on this machine | `qs log` frame stats; `hyprctl systeminfo` |
+| Click-through actually works on this compositor | probe written, not yet run | `quickshell -p poc/overlay/InputMaskProbe.qml` |
+| Geometry staleness during a drag | probe written, not yet run | `quickshell -p poc/geometry/GeometryProbe.qml` |
+| Event names emitted during drag/resize | probe written, not yet run | same probe, histogram |
+| Theme token names present in the installed theme | not inspected | `~/.local/state/omarchy/current/theme` |
+| Multi-monitor and mixed-DPI behaviour | single-monitor machine | second output, or a virtual one |
 
 ---
 

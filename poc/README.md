@@ -21,8 +21,8 @@ Omarchy machine, and copy the output into the Phase 0 verification table in
 |-----|---------|----------|-----|
 | `physics/sim.mjs` + `sim.test.mjs` | yes | **yes** — `node --test poc/physics/`, 16/16 pass | Pure JavaScript, no desktop required |
 | `env-check.sh` | yes | **yes** — `bash -n` syntax check; runs end to end here | Not a result: on a machine without Omarchy it correctly reports every tool `MISSING` |
-| `overlay/InputMaskProbe.qml` | yes | **no** | Needs Hyprland + Quickshell; the Phase 0 machine has neither |
-| `geometry/GeometryProbe.qml` | yes | **no** | Needs a Hyprland session with movable windows |
+| `overlay/InputMaskProbe.qml` | yes | **linted, not run** — `qmllint 6.12.0 -I /usr/share/omarchy/shell` exits 0 | Compile-time clean; the runtime questions (pass-through, capture, `Escape`) still need a click test |
+| `geometry/GeometryProbe.qml` | yes | **linted, not run** — `qmllint 6.12.0 -I /usr/share/omarchy/shell` exits 0 | Compile-time clean; staleness and the event histogram still need a drag |
 
 Nothing in this directory may be cited as evidence of runtime behaviour that
 was not actually observed. The QML probes are hypotheses with an instrument

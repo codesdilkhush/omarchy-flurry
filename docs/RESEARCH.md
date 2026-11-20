@@ -401,11 +401,13 @@ This Phase 0 ran on a cloud Linux VM, not on the Omarchy machine. Facts:
 - `pacman -Qs quickshell`, `dpkg -l | grep -Ei "quickshell|hyprland|qt6"` →
   nothing.
 
-Therefore **the following were not inspected and are not claimed**: the user's
-Omarchy version, Quickshell version/build flags, Qt version, Hyprland version,
-monitor configuration, refresh rates, GPU, available Quickshell modules on the
-installed build, and the installed theme tokens. They are recorded as blocked
-in §11 with the exact commands to resolve them.
+**Resolved later the same day** by running `poc/env-check.sh` on the target
+machine: Omarchy `4.5.0-3`, Quickshell `0.3.2.r7.g2b4501a-1`, Qt `6.12.0`,
+Hyprland `0.56.2-4`, one `eDP-1` at `1920x1080@60` with `scale=1.25`, and
+`qmllint` present at `/usr/lib/qt6/bin/qmllint`. See `docs/COMPATIBILITY.md`
+§3.1 for the recorded table. Still not inspected: the GPU/renderer, frame
+timing, the installed theme tokens, multi-monitor behaviour, and the runtime
+behaviour of the two QML probes — those remain in §11.
 
 What *is* established about versions: the reference tree is Omarchy
 `4.0.0.alpha` (branch `quattro`), which pins `quickshell` from the Arch repos
@@ -421,7 +423,7 @@ against the user's installed versions, not against these.
 |---|---|---|
 | Manifest schema | `jq`, plus `omarchy plugin validate` on the target machine | `jq` present; validator can be mirrored locally |
 | JS logic (physics, models, settings) | `node --test` | Present and used (16/16 pass) |
-| QML syntax/type checking | `qmllint -I $OMARCHY_PATH/shell <files>` | **Unavailable here** — required on the Omarchy machine |
+| QML syntax/type checking | `/usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell <files>` | **Available on the target machine** (off `PATH`, Qt `6.12.0`) |
 | Plugin load, overlay, input | `omarchy plugin validate`, `omarchy-shell shell rescanPlugins`, manual | **Unavailable here** |
 
 `shell-dev.md` gives the canonical pair for plugin work:
@@ -448,8 +450,10 @@ against the user's installed versions, not against these.
 
 ## 11. Blocked verifications (must run on the target machine)
 
-Each needs one command and one recorded line of output. Until they are done,
-the corresponding rows in `docs/COMPATIBILITY.md` stay "unverified".
+Status: the version/monitor/package rows are **done** — measured on the target
+machine and recorded in `docs/COMPATIBILITY.md` §3.1. What remains blocked is
+the two runtime probes, the GPU/frame timing, the theme tokens and multi-monitor
+behaviour.
 
 `poc/env-check.sh` runs the read-only half of the list below in one pass and
 prints it in pasteable form; it installs nothing, starts no service and changes
