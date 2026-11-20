@@ -31,6 +31,21 @@ Panel {
     root.write(out)
   }
 
+  // Turning snowfall on has to restore the click-through surface, not just flip
+  // `enabled`: with overlay="disabled" the surface stays unmapped and the click
+  // would look like it did nothing. The bar widget already owns that rule, so
+  // the panel asks it rather than keeping a second copy that can drift.
+  function toggleSnowfall() {
+    if (root.hostWidget && typeof root.hostWidget.toggleSnowfall === "function") {
+      root.hostWidget.toggleSnowfall()
+      return
+    }
+    if (root.cfg.enabled && root.cfg.overlay === "passive")
+      root.patch({ enabled: false })
+    else
+      root.patch({ enabled: true, overlay: "passive" })
+  }
+
   function cycleQuality() {
     var order = Settings.QUALITIES
     var i = order.indexOf(root.cfg.quality)
@@ -90,7 +105,7 @@ Panel {
           MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.patch({ enabled: !(root.cfg.enabled && root.cfg.overlay === "passive") })
+            onClicked: root.toggleSnowfall()
           }
         }
 
