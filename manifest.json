@@ -2,8 +2,9 @@
   "schemaVersion": 1,
   "id": "snowglobe",
   "name": "Snowglobe",
-  "version": "0.1.0",
+  "version": "1.1.1",
   "author": "Saman Shirdel",
+  "license": "MIT",
   "description": "Interactive, window-aware snowfall that settles on window tops and the ground, with a persistent snowman builder",
   "kinds": [
     "service",
@@ -18,6 +19,85 @@
     "description": "Snowfall on your desktop, snow on your windows",
     "category": "Ambience",
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": {
+      "enabled": true,
+      "overlay": "passive",
+      "layer": "above",
+      "quality": "balanced",
+      "density": 1,
+      "wind": 1,
+      "accumulateOnWindows": true,
+      "builderEnabled": true,
+      "adaptiveQuality": true,
+      "pauseOnFullscreen": true
+    },
+    "schema": [
+      {
+        "key": "enabled",
+        "type": "boolean",
+        "label": "Snowfall",
+        "description": "Map a click-through snow surface on every monitor",
+        "defaultValue": true
+      },
+      {
+        "key": "overlay",
+        "type": "enum",
+        "label": "Overlay surface",
+        "options": [
+          "passive",
+          "disabled"
+        ],
+        "defaultValue": "passive"
+      },
+      {
+        "key": "layer",
+        "type": "enum",
+        "label": "Draw layer",
+        "options": [
+          "behind",
+          "above"
+        ],
+        "defaultValue": "above",
+        "description": "Above windows draws snow in front of them (recommended); behind keeps it under every window"
+      },
+      {
+        "key": "quality",
+        "type": "enum",
+        "label": "Quality",
+        "options": [
+          "low",
+          "balanced",
+          "high"
+        ],
+        "defaultValue": "balanced"
+      },
+      {
+        "key": "accumulateOnWindows",
+        "type": "boolean",
+        "label": "Snow on window tops",
+        "defaultValue": true
+      },
+      {
+        "key": "builderEnabled",
+        "type": "boolean",
+        "label": "Snowman builder",
+        "defaultValue": true
+      },
+      {
+        "key": "adaptiveQuality",
+        "type": "boolean",
+        "label": "Adaptive quality",
+        "description": "Reduce particle density automatically if a frame budget is exceeded",
+        "defaultValue": true
+      },
+      {
+        "key": "pauseOnFullscreen",
+        "type": "boolean",
+        "label": "Pause on fullscreen",
+        "description": "Stop the simulation on monitors with a fullscreen window",
+        "defaultValue": true
+      }
+    ]
   }
 }

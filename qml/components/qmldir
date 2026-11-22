@@ -1,0 +1,3 @@
+module components
+BuilderToolButton 1.0 BuilderToolButton.qml
+SnowBallItem 1.0 SnowBallItem.qml

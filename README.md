@@ -1,85 +1,165 @@
 # Snowglobe
 
-An Omarchy desktop plugin: interactive, window-aware snowfall that settles on
-window tops and the ground and accumulates into drivable snow, plus a
-persistent Snowman Builder.
+An interactive winter desktop experience for Omarchy: atmospheric snowfall that
+settles on window tops and the bottom of each monitor, with an original snowman
+builder and persistent decorations. It runs as a native plugin inside the
+long-running Omarchy shell — no second Quickshell process, no daemon, no Python,
+no browser rendering.
 
-Native Omarchy plugin — QML/JavaScript + Quickshell (Qt Quick) + Hyprland IPC.
-No Python, no Electron, no browser rendering, no helper daemon, no second
-Quickshell instance.
+> **Status:** 1.1.1 (transparent-overlay fix and video-matched snow look). Native Omarchy integration,
+> deterministic snowfall, window-aware accumulation, window movement physics,
+> an interactive snowman builder with persistence, adaptive quality and measured
+> performance. See `CHANGELOG.md`, `docs/PERFORMANCE.md` and `docs/MARKETPLACE.md`.
 
-## Status: Phase 1 — plugin skeleton
+## Features (current)
 
-The plugin installs, loads, and holds a transparent click-through overlay
-surface on every monitor. It draws **no snow yet** — Phase 2 is the simulation
-and the falling-flake layer.
+- Deterministic falling snow with gravity, air resistance, wind gusts, per-flake
+  sway and size variation, drawn in one batched Canvas pass per monitor.
+- Snow accumulation on active window tops and monitor bottoms using bounded
+  height maps; banks slide, redistribute and settle downwind.
+- Hyprland geometry tracking via event-driven refresh plus bounded polling;
+  surfaces follow windows and are dropped when windows or monitors disappear.
+- Window movement physics: attached snow rides along, slides toward the trailing
+  edge, and sheds bounded particles with inherited momentum that fall and land.
+- Real procedural flake shapes: crisp points for tiny flakes, six-arm crystals
+  for medium ones and dendritic snowflakes for the largest.
+- Snowman builder: **roll** snowballs by dragging across fallen snow. The ball
+  follows the pointer and grows as it picks up the snow it passes over (circle
+  over a pile to keep gathering). Release to drop it: on another ball it stacks
+  (a head is smaller than the body), elsewhere it starts a new snowman resting
+  on the window top or ground below. Then Move (Shift moves the whole snowman),
+  Decorate (carrot/eyes/arms/hat/scarf/buttons/mouth) and Delete (or right-click).
+  Escape returns any snow you were carrying, exits and restores click-through.
+- Snow is drawn in front of windows by default. It settles only where it is
+  visible and has room: never over another window, the panel, or off-screen.
+- Completed snowmen persist in `$XDG_STATE_HOME/snowglobe/state.json` with
+  schema migration and quarantine of corrupt documents.
+- Adaptive quality and optional pause-on-fullscreen; 60 Hz physics with 30 Hz
+  compositing at low/balanced and 60 Hz at high quality.
+- Quality modes with bounded particle counts (250 / 600 / 1200 cap per monitor).
+- Bar glyph (❄) with left-click to toggle snowfall and right-click for settings.
+- Native settings panel built on Omarchy's `qs.Ui` kit: snowfall, overlay
+  surface, draw layer, quality, window snow, builder toggle, live diagnostics
+  and a two-step settings reset.
+- One transparent, click-through layer surface per monitor; snow never blocks input.
+- Versioned settings in the shell's own `shell.json` inline bar entry.
+- Strictly validated XDG state document for future persistent decorations;
+  invalid data is reported, never silently overwritten.
+- Shell IPC control and diagnostics (`snowglobe`, `snowglobe.bar` targets).
 
-| Area | State |
-|---|---|
-| Feasibility research (source-verified) | done |
-| Architecture, decisions, risks | done |
-| Physics/timing spike (`poc/physics`) | **executed** — `node --test poc/physics/`, 16/16 pass |
-| Phase 1 plugin: manifest, service, bar widget, panel | **runs** — `omarchy plugin validate` passes, `qmllint` reports no errors, loads in the live shell, overlay maps and unmaps on mode change, settings round-trip through `shell.json` |
-| Click-through with a real click | **not tested** — the surface is mapped with an empty input mask, but nobody has clicked through it yet |
-| Input pass-through probe (`poc/overlay`) | **written, linted, not executed** — needs a live Hyprland session |
-| Geometry staleness probe (`poc/geometry`) | **written, not executed** — needs a live Hyprland session |
-| Installed-system compatibility (Omarchy/Quickshell/Qt/Hyprland versions, monitors, GPU) | **blocked** — see `docs/COMPATIBILITY.md` §3 |
+## Limitations
 
-No performance number in these documents is a measurement of a real desktop
-session. The only measured figure is the JavaScript simulation step in
-`poc/physics`, on the machine that ran it.
+- Snowmen stay where they were dropped; they do not follow a window that moves.
 
-## Documents
+- Multi-monitor and hotplug behavior are designed and unit-tested but were not
+  hardware-tested: the development machine has one monitor.
+- Builder mouse gestures need a human visual review; model and IPC paths are
+  covered by automated and live tests.
+- Multi-monitor, HiDPI and fullscreen-aware behavior; measured performance.
 
-| File | Contents |
-|---|---|
-| [`docs/RESEARCH.md`](docs/RESEARCH.md) | What Omarchy/Quickshell/Hyprland actually allow, with `file:line` citations; what remains unverified and how to verify it |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System shape, subsystem interfaces, coordinate rules, proposed file tree, lifecycle, performance budgets |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADR-001…ADR-015 with status |
-| [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | Verified vs unverified matrix, coordinate/scaling quirks, hard requirements |
-| [`docs/RISKS.md`](docs/RISKS.md) | Risk register R1–R16 with trigger, detection and fallback |
-| [`poc/README.md`](poc/README.md) | Exactly what was and was not run, and the manual procedures |
+## Requirements
 
-## Running the Phase 0 probes
-
-The physics spike needs only Node (development tooling; the plugin itself ships
-no Node runtime):
-
-```bash
-node --test poc/physics/
-```
-
-The environment probe is read-only and installs nothing:
-
-```bash
-bash poc/env-check.sh
-```
-
-The two QML probes open a throwaway fullscreen surface in your current session;
-run them one at a time, in a Hyprland session, and read their console output:
-
-```bash
-quickshell -p poc/overlay/InputMaskProbe.qml
-quickshell -p poc/geometry/GeometryProbe.qml
-```
-
-## Requirements (for the eventual plugin)
-
-- Omarchy with the `omarchy-shell` (Quickshell) desktop
-- Hyprland
-- Qt 6 / Quickshell as shipped by Omarchy
-
-No additional runtime dependencies are planned.
+- Omarchy 4.5+ with the Quickshell plugin host (Quattro contract).
+- Quickshell 0.3.2+, Qt 6.12+, Hyprland (Wayland).
+- No root, no network, no third-party runtime dependencies.
 
 ## Installation
 
-Development install, using the official commands and nothing else:
+From this source checkout:
 
-```bash
-omarchy plugin add <this-repo-url>
-omarchy plugin remove snowglobe
+```sh
+./scripts/install.sh
 ```
 
-There will be no custom `install.sh`.
+The installer validates the manifest, backs up any existing install to
+`$XDG_DATA_HOME/snowglobe/backups/`, and copies runtime files into
+`~/.config/omarchy/plugins/snowglobe/`. It **does not modify `shell.json`** —
+add or keep the widget in your bar layout yourself:
 
-`poc/` is never installed and is removed before release.
+```json
+{ "id": "snowglobe", "enabled": true, "overlay": "passive" }
+```
+
+The shell hot-reloads plugin files on save. Force discovery with
+`omarchy-shell shell rescanPlugins` if needed.
+
+To remove:
+
+```sh
+./scripts/uninstall.sh                 # plugin files only; data and config kept
+./scripts/uninstall.sh --remove-bar-entry --purge-state   # explicit full removal
+```
+
+## Usage
+
+- Left-click the ❄ glyph: toggle snowfall (currently toggles the overlay mode).
+- Right-click the glyph: open the settings panel.
+- Escape closes the panel.
+
+Shell IPC:
+
+```sh
+omarchy-shell snowglobe status
+omarchy-shell snowglobe builderEnter
+omarchy-shell snowglobe builderExit
+omarchy-shell snowglobe snowmen
+omarchy-shell snowglobe snowmanCreate eDP-1 400 700
+omarchy-shell snowglobe deleteSnowman <id>
+omarchy-shell snowglobe clearSnowmen
+omarchy-shell snowglobe metrics       # per-monitor particles, banks and frame timings
+omarchy-shell snowglobe geometry      # tracked windows and rectangles (read-only)
+omarchy-shell snowglobe probe         # raw Hyprland model diagnostics
+omarchy-shell snowglobe clear         # reset all snow fields
+omarchy-shell snowglobe pause
+omarchy-shell snowglobe resume
+omarchy-shell snowglobe.bar status
+omarchy-shell snowglobe.bar toggle
+omarchy-shell snowglobe.bar openPanel
+omarchy-shell snowglobe.bar closePanel
+omarchy-shell snowglobe.bar configure '{"quality":"high","wind":0.5}'
+```
+
+## Settings
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Master on/off for the overlay |
+| `overlay` | `passive` | `passive` (click-through surface) or `disabled` (no surface) |
+| `layer` | `above` | `above` windows (snow falls in front of them) or `behind` them |
+| `quality` | `balanced` | `low`, `balanced`, `high` (caps applied in later phases) |
+| `density` | `1` | Planned snowfall density multiplier (0.2–3) |
+| `wind` | `1` | Planned wind strength (−2–2) |
+| `accumulateOnWindows` | `true` | Planned window-top accumulation |
+| `builderEnabled` | `true` | Planned snowman builder availability |
+
+Unknown or invalid values fall back to defaults; out-of-range numbers are
+clamped. Settings are written only through the shell's own `updateEntryInline`.
+
+## Troubleshooting
+
+- **Widget does not appear:** check `omarchy plugin list --json`, then
+  `omarchy-shell shell rescanPlugins`.
+- **QML errors:** `qs log -p "$OMARCHY_PATH/shell" --tail 100`.
+- **Plugin validation:** `./scripts/validate.sh`.
+- **`qmllint` not found:** set `QT_BIN_DIR` to the directory containing it
+  (on this system `/usr/lib/qt6/bin`).
+
+## Compatibility and documentation
+
+See `docs/COMPATIBILITY.md` for the verified environment matrix, `docs/RESEARCH.md`
+for verified APIs, `docs/ARCHITECTURE.md` for subsystem design, `docs/DECISIONS.md`
+for engineering decisions, `docs/RISKS.md` for the risk register,
+`docs/SECURITY.md`, `docs/PERFORMANCE.md` and `docs/TEST_PLAN.md`.
+
+## Tests
+
+```sh
+node --test tests/regression.test.js      # pure-JS logic, no desktop needed
+python3 tests/qml/run_all.py               # real QML renderers/service/builder, headless
+                                           # (needs: pip install PySide6-Essentials)
+```
+
+
+## License
+
+MIT — see `LICENSE`.
