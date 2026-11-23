@@ -1,0 +1,18 @@
+#!/bin/bash
+# flurry: drive the Flurry plugin from a terminal or a Hyprland bind.
+#   flurry [toggle|on|off|next|effect <name>|intensity <0.25-2>|decorate|santa|yeti|
+#           code|name <name>|add <friend-code>|note <friend> <text>|status|clear]
+set -euo pipefail
+call() { omarchy-shell flurry "$@"; }
+cmd=${1:-toggle}; shift || true
+case $cmd in
+  toggle|on|off|next|decorate|santa|yeti|status|clear) call "$cmd" ;;
+  effect) call effect "${1:?snow|leaves|starfall|rain|sakura|fireflies}" ;;
+  intensity) call intensity "${1:?0.25 to 2}" ;;
+  code) call friendCode ;;
+  name) call setName "${1:?name}" ;;
+  add) call addFriend "${1:-$(wl-paste --no-newline)}" ;;
+  note) call note "${1:?friend}" "${2:?text}" ;;
+  -h|--help|help) sed -n 2,4p "$0" ;;
+  *) echo "flurry: unknown command '$cmd'" >&2; exit 1 ;;
+esac

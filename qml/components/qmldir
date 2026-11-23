@@ -1,4 +1,0 @@
-module components
-BuilderToolButton 1.0 BuilderToolButton.qml
-SettingRow 1.0 SettingRow.qml
-SnowBallItem 1.0 SnowBallItem.qml

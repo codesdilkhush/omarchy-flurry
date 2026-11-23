@@ -1,6 +1,2 @@
-# Phase 0 research clones (large; never shipped)
-.research/
-
-# Editor / OS noise
-.DS_Store
-*.swp
+node_modules/
+out/

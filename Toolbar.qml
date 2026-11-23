@@ -1,0 +1,83 @@
+import QtQuick
+import qs.Commons
+import qs.Commons as Commons
+
+// Decorate mode's tools, along the bottom of the screen.
+Rectangle {
+  id: root
+
+  property var scene: null
+  readonly property var service: scene ? scene.service : null
+
+  readonly property var tools: [
+    { id: "tree", label: "Tree", glyph: "🎄" },
+    { id: "snowman", label: "Snowman", glyph: "⛄" },
+    { id: "bauble", label: "Bauble", glyph: "🔴" },
+    { id: "light", label: "Lights", glyph: "💡" },
+    { id: "candy", label: "Candy cane", glyph: "🍬" },
+    { id: "star", label: "Star", glyph: "⭐" },
+    { id: "erase", label: "Remove", glyph: "✕" }
+  ]
+
+  width: row.implicitWidth + 20
+  height: 64
+  x: scene ? (scene.width - width) / 2 : 0
+  y: scene ? scene.groundY - height - 24 : 0
+  radius: Style.cornerRadius
+  color: Commons.Color.popups.background
+  border.color: Commons.Color.popups.border
+  border.width: 1
+
+  Row {
+    id: row
+    anchors.centerIn: parent
+    spacing: 6
+
+    Repeater {
+      model: root.tools
+      delegate: Rectangle {
+        required property var modelData
+        readonly property bool selected: root.scene && root.scene.tool === modelData.id
+        width: 64; height: 50
+        radius: Math.max(0, Style.cornerRadius - 2)
+        color: selected ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.35)
+             : (hover.hovered ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.15) : "transparent")
+        HoverHandler { id: hover }
+        Column {
+          anchors.centerIn: parent
+          spacing: 2
+          Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.glyph; font.pixelSize: 18 }
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: modelData.id === "tree" ? modelData.label + " " + (root.service ? root.service.saved.trees.length : 0) + "/3" : modelData.label
+            color: Commons.Color.popups.text
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+        }
+        MouseArea {
+          anchors.fill: parent
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.scene.tool = selected ? "" : modelData.id
+        }
+      }
+    }
+
+    Rectangle { width: 1; height: 40; anchors.verticalCenter: parent.verticalCenter; color: Commons.Color.popups.border }
+
+    Rectangle {
+      width: 70; height: 50
+      radius: Math.max(0, Style.cornerRadius - 2)
+      color: Commons.Color.accent
+      Text {
+        anchors.centerIn: parent
+        text: "Done"
+        color: Commons.Color.background
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
+        font.bold: true
+      }
+      MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.scene.tool = ""; root.service.stopDecorating() } }
+    }
+  }
+}
