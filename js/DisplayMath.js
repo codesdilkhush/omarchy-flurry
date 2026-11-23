@@ -8,14 +8,22 @@ function safeScale(scale) {
   return typeof scale === "number" && isFinite(scale) && scale > 0 ? scale : 1;
 }
 
-// Hyprland reports monitor width/height in physical pixels; the simulation and
-// the QML surfaces work in logical pixels.
-function logicalSize(physicalWidth, physicalHeight, scale) {
+// Hyprland transforms 1, 3, 5 and 7 rotate the output by 90 or 270 degrees
+// (5 and 7 are the flipped variants). The reported mode width/height are the
+// unrotated panel size, so a portrait monitor has to swap them.
+function isRotated(transform) {
+  var t = Number(transform);
+  return isFinite(t) && (Math.round(t) % 2) === 1;
+}
+
+// Hyprland reports monitor width/height in physical pixels of the unrotated
+// mode; the simulation and the QML surfaces work in logical pixels of the
+// screen as the user sees it.
+function logicalSize(physicalWidth, physicalHeight, scale, transform) {
   var s = safeScale(scale);
-  return {
-    width: (physicalWidth || 0) / s,
-    height: (physicalHeight || 0) / s
-  };
+  var w = (physicalWidth || 0) / s;
+  var h = (physicalHeight || 0) / s;
+  return isRotated(transform) ? { width: h, height: w } : { width: w, height: h };
 }
 
 function reservedArea(reserved, scale) {
@@ -50,7 +58,7 @@ function toGlobal(localX, localY, monitor) {
 }
 
 function contains(monitor, globalX, globalY) {
-  var size = logicalSize(monitor.width, monitor.height, monitor.scale);
+  var size = logicalSize(monitor.width, monitor.height, monitor.scale, monitor.transform);
   var local = toLocal(globalX, globalY, monitor);
   return local.x >= 0 && local.y >= 0 && local.x <= size.width && local.y <= size.height;
 }
@@ -58,6 +66,7 @@ function contains(monitor, globalX, globalY) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     safeScale: safeScale,
+    isRotated: isRotated,
     logicalSize: logicalSize,
     reservedArea: reservedArea,
     toLocal: toLocal,

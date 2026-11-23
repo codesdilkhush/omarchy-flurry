@@ -32,7 +32,7 @@ function create(config) {
     quality: cfg.quality || "balanced",
     adaptiveScale: cfg.adaptiveScale > 0 ? cfg.adaptiveScale : 1,
     paused: cfg.paused === true,
-    frameIntervalMs: cfg.frameIntervalMs > 0 ? cfg.frameIntervalMs : 1000 / 60,
+    frameIntervalMs: cfg.frameIntervalMs > 0 ? cfg.frameIntervalMs : frameIntervalFor(cfg.quality || "balanced"),
     // Accumulation dependencies are injected (QML cannot import JS modules).
     bankModule: cfg.bankModule || null,
     collisionModule: cfg.collisionModule || null,
@@ -442,10 +442,33 @@ function restingSurface(sim, x, y, slack) {
 
 // Hand gathered snow back to the surface under (x, y); used when a snowball is
 // abandoned or too small to keep. Returns the area actually returned.
+//
+// Two rules keep the snow from vanishing (both were bugs in 1.1.1):
+//  1. The ball is usually *inside* the pile it was rolled through, so look first
+//     for the surface whose snow contains the point, and only then for one the
+//     ball is resting above.
+//  2. A mound of the original width may not fit back (the pile can be at its
+//     per-segment limit right there), so any remainder is spread over a wider
+//     and wider reach, then poured into the nearest free space, instead of being
+//     dropped. The passes are fixed and few.
+var RETURN_REACH_SEGMENTS = [8, 24, 64, 200];
 function returnSnow(sim, x, y, area) {
-  var hit = restingSurface(sim, x, y, 12)
+  if (!sim.bankModule || !sim.collisionModule) return 0
+  var hit = sim.collisionModule.surfaceHolding
+    ? sim.collisionModule.surfaceHolding(sim.bankModule, sim.surfaces, x, y) : null
+  if (!hit) hit = restingSurface(sim, x, y, 12)
   if (!hit) return 0
-  var given = sim.bankModule.giveBack(hit.surface.bank, x, area, 8)
+  var bank = hit.surface.bank
+  var given = 0
+  for (var pass = 0; pass < RETURN_REACH_SEGMENTS.length; pass++) {
+    var remaining = area - given
+    if (!(remaining > 0.01)) break
+    given += sim.bankModule.giveBack(bank, x, remaining, RETURN_REACH_SEGMENTS[pass])
+  }
+  // Final pass: nearest free space. The soft mounds above clip against full
+  // segments; this only gives up when the whole bank is at its limit.
+  if (area - given > 0.01 && sim.bankModule.fillNearest)
+    given += sim.bankModule.fillNearest(bank, x, area - given)
   if (given > 0) sim.bankRevision++
   return given
 }
@@ -558,8 +581,18 @@ function setWind(sim, wind) {
   sim.wind = wind;
 }
 
+// Compositing interval for a quality level, in ms. MonitorScene repaints at
+// this rate and update() measures frame drift against it. It used to be fixed
+// at create() time, so switching from "high" to "balanced" left the drift
+// metric comparing 33 ms frames to a 16 ms budget: adaptive quality then saw a
+// permanent ~17 ms overrun and throttled the snowfall to its minimum.
+function frameIntervalFor(quality) {
+  return quality === "high" ? 16 : 33;
+}
+
 function setQuality(sim, quality) {
   sim.quality = quality;
+  sim.frameIntervalMs = frameIntervalFor(quality);
   applyLimits(sim);
 }
 
@@ -1004,6 +1037,7 @@ if (typeof module !== "undefined" && module.exports) {
     setDensity: setDensity,
     setWind: setWind,
     setQuality: setQuality,
+    frameIntervalFor: frameIntervalFor,
     setGeometry: setGeometry,
     setAccumulateOnWindows: setAccumulateOnWindows,
     setPlowEnabled: setPlowEnabled,

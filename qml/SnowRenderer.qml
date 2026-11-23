@@ -16,6 +16,7 @@ Canvas {
   required property var simulation
 
   property real lastPaintMs: 0
+  property int paintCount: 0
 
   // Keep Qt's default Canvas.Image backing store. Qt 6 ignores
   // Canvas.FramebufferObject, and asking for it on a transparent layer surface
@@ -29,6 +30,7 @@ Canvas {
   onVisibleChanged: if (visible) renderer.requestPaint()
 
   onPaint: {
+    renderer.paintCount++
     var started = Simulation.now()
     var ctx = getContext("2d")
     if (!ctx) return

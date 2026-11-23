@@ -18,11 +18,12 @@ import "js/SnowmanModel.js" as SnowmanModel
 import "js/SnowRoll.js" as SnowRoll
 import "js/SnowTracks.js" as SnowTracks
 import "js/SnowPlowModel.js" as SnowPlow
+import "js/Compositor.js" as Compositor
 
 // Snowglobe's service: the single owner of mode, overlay surfaces, simulation
-// state and diagnostics. Phase 2 adds one bounded, deterministic snowfall
-// simulation per monitor; the surfaces remain click-through and the simulation
-// is pure JavaScript, independent of Qt and Hyprland.
+// state and diagnostics. There is one bounded, deterministic snowfall
+// simulation per monitor; the surfaces are click-through and the simulation is
+// pure JavaScript, independent of Qt and Hyprland.
 //
 // omarchy-shell injects `shell` (a capability-scoped facade, never the host
 // shell object) and `manifest`. Preferences arrive from BarWidget.qml, which
@@ -37,7 +38,8 @@ Item {
   property var rawSettings: ({})
 
   readonly property var settings: Settings.normalize(rawSettings)
-  readonly property string version: manifest && manifest.version ? String(manifest.version) : "0.1.0"
+  readonly property string version: manifest && manifest.version
+    ? String(manifest.version) : Constants.SERVICE_VERSION
 
   // A transient pause (fullscreen / sleeping monitor) is not a user mode.
   property bool paused: false
@@ -48,8 +50,24 @@ Item {
   property var snowmen: []
   property int snowmenRevision: 0
 
+  // ---- Black-screen guard --------------------------------------------------
+  // "checking" until hyprctl answers (or the probe times out), then "safe",
+  // "unsafe" or "unknown". See js/Compositor.js for why an "unsafe" compositor
+  // turns a transparent full-screen overlay into a black sheet.
+  property string compositorState: Compositor.CHECKING
+  property string compositorReason: ""
+  readonly property bool overlayAllowed:
+    Compositor.overlayAllowed(compositorState, settings.transparencyGuard)
+
+  // disabled: switched off by the user (no surface at all)
+  // starting: waiting for the compositor probe before mapping anything
+  // blocked:  the compositor would render the overlay black, so it stays off
+  // paused:   transient pause from IPC
+  // passive:  mapped, click-through, snowing
   readonly property string mode: {
     if (!settings.enabled || settings.overlay === "disabled") return "disabled"
+    if (!overlayAllowed)
+      return compositorState === Compositor.CHECKING ? "starting" : "blocked"
     if (paused) return "paused"
     return "passive"
   }
@@ -83,7 +101,7 @@ Item {
       wind: settings.wind,
       quality: settings.quality,
       adaptiveScale: snowglobe.adaptiveScale,
-      frameIntervalMs: settings.quality === "high" ? 1000 / 60 : 1000 / 30,
+      frameIntervalMs: SimulationModule.frameIntervalFor(settings.quality),
       bankModule: SnowBank,
       collisionModule: Collision,
       detachedSystem: detached,
@@ -245,10 +263,6 @@ Item {
   property int trackedWindows: 0
   property real fastUntil: 0
 
-  readonly property var fastEvents: [
-    "windowadded", "windowremoved", "movewindow", "resizewindow",
-    "workspace", "fullscreen", "monitoradded", "monitorremoved", "configreloaded"
-  ]
 
   function collectGeometryInput() {
     var monitors = []
@@ -261,7 +275,7 @@ Item {
       if (!mon) continue
       var ipc = mon.lastIpcObject || ({})
       var scale = DisplayMath.safeScale(mon.scale)
-      var logical = DisplayMath.logicalSize(mon.width, mon.height, scale)
+      var logical = DisplayMath.logicalSize(mon.width, mon.height, scale, ipc.transform)
       var reserved = DisplayMath.reservedArea(ipc.reserved, scale)
       monitors.push({
         name: String(mon.name || ""),
@@ -369,12 +383,28 @@ Item {
     trackedWindows = Object.keys(geometrySnapshot.windows).length
     var total = 0
     for (var name in simulations) {
+      syncSimulationSize(name)
       SimulationModule.setGeometry(simulations[name], geometrySnapshot, name)
       SimulationModule.setPaused(simulations[name],
         settings.pauseOnFullscreen && fullscreenByMonitor[name] === true)
       total += simulations[name].surfaces.length
     }
     bankCount = total
+  }
+
+  // A mode change (resolution, scale, rotation) resizes a screen without
+  // changing the screen list, so screensChanged never fires. Keep the particle
+  // field matched to the real surface size on every geometry round instead.
+  function syncSimulationSize(name) {
+    var sim = simulations[name]
+    if (!sim) return
+    for (var i = 0; i < Quickshell.screens.length; i++) {
+      var screen = Quickshell.screens[i]
+      if (screen.name !== name) continue
+      if (sim.system.width !== screen.width || sim.system.height !== screen.height)
+        SimulationModule.resize(sim, screen.width, screen.height)
+      return
+    }
   }
 
   // Read-only simulation diagnostics. There is at most one vehicle per monitor;
@@ -395,9 +425,6 @@ Item {
     return Math.round(total)
   }
 
-  // Phase 4 kept this name; retain it as the diagnostic-facing alias.
-  function plowTotal(field) { return simTotal(field) }
-
   Timer {
     id: geometrySettle
     interval: 60
@@ -405,9 +432,12 @@ Item {
     onTriggered: snowglobe.applyGeometry()
   }
 
+  // Bounded polling: fast for a short window after a geometry-related
+  // Hyprland event, idle otherwise. The interval is set imperatively because
+  // Date.now() cannot drive a binding.
   Timer {
     id: geometryPoll
-    interval: snowglobe.fastUntil > Date.now() ? Constants.POLL_FAST_MS : Constants.POLL_IDLE_MS
+    interval: Constants.POLL_IDLE_MS
     repeat: true
     running: snowglobe.overlayMapped
     onTriggered: {
@@ -417,13 +447,22 @@ Item {
     }
   }
 
+  // Hyprland event names carry versions (movewindowv2, workspacev2, ...).
+  // The old list also named "windowadded"/"windowremoved", which Hyprland never
+  // sends, so opening or closing a window did not trigger fast polling.
+  function isGeometryEvent(name) {
+    var base = String(name || "").replace(/v[0-9]+$/, "")
+    return Constants.FAST_POLL_EVENTS.indexOf(base) >= 0
+  }
+
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      var name = String(event && event.name ? event.name : "")
-      if (snowglobe.fastEvents.indexOf(name) >= 0) {
-        snowglobe.fastUntil = Date.now() + 2000
+      if (!snowglobe.isGeometryEvent(event && event.name)) return
+      snowglobe.fastUntil = Date.now() + Constants.FAST_POLL_WINDOW_MS
+      if (geometryPoll.interval !== Constants.POLL_FAST_MS) {
         geometryPoll.interval = Constants.POLL_FAST_MS
+        if (geometryPoll.running) geometryPoll.restart()
       }
     }
   }
@@ -436,8 +475,17 @@ Item {
     }
   }
 
-  onSettingsChanged: applySimulationSettings()
-  onOverlayMappedChanged: if (overlayMapped) refreshGeometry()
+  onSettingsChanged: {
+    applySimulationSettings()
+    if (!settings.builderEnabled) exitBuilder()
+  }
+  // Builder mode only makes sense on a mapped overlay. Leaving it here (rather
+  // than only masking it in the surface binding) means a pause, a disable or a
+  // blocked compositor can never bring back an exclusive-focus surface later.
+  onOverlayMappedChanged: {
+    if (overlayMapped) refreshGeometry()
+    else exitBuilder()
+  }
   // Count mapped surfaces, not delegate instances: a disabled plugin keeps its
   // delegates alive but unmaps them, which is the zero-cost state we want to
   // report honestly in diagnostics.
@@ -453,7 +501,7 @@ Item {
       passive: snowglobe.overlayMapped
       behind: snowglobe.settings.layer !== "above"
       simulation: snowglobe.simulations[modelData.name]
-      builderActive: snowglobe.builderActive && !snowglobe.paused
+      builderActive: snowglobe.builderActive && snowglobe.overlayMapped
       service: snowglobe
       snowmen: snowglobe.snowmen
       snowmenRevision: snowglobe.snowmenRevision
@@ -705,7 +753,7 @@ Item {
   }
 
   function enterBuilder() {
-    if (!settings.builderEnabled || !settings.enabled || paused) return false
+    if (!settings.builderEnabled || !overlayMapped) return false
     builderActive = true
     return true
   }
@@ -743,6 +791,48 @@ Item {
     onTriggered: snowglobe.persistState()
   }
 
+  // ---- Compositor transparency probe ---------------------------------------
+  // One `hyprctl` call at start-up. Nothing is mapped until it answers or times
+  // out, so the overlay can never flash black on an affected system.
+  function startCompositorProbe() {
+    compositorState = Compositor.CHECKING
+    compositorReason = ""
+    probeTimeout.restart()
+    compositorProbe.running = false
+    compositorProbe.running = true
+  }
+
+  function finishCompositorProbe(text) {
+    if (compositorState !== Compositor.CHECKING) return
+    probeTimeout.stop()
+    var result = Compositor.parseQuirkProbe(text)
+    compositorState = result.state
+    compositorReason = result.reason
+    console.log("[snowglobe] compositor transparency: " + compositorState
+      + (compositorReason ? " (" + compositorReason + ")" : ""))
+    if (compositorState === Compositor.UNSAFE && settings.transparencyGuard)
+      console.warn("[snowglobe] overlay blocked: Hyprland strips alpha from client buffers, "
+        + "a transparent full-screen surface would render black. Set "
+        + Compositor.QUIRK_OPTION + " = false, restart Hyprland, then the shell.")
+  }
+
+  Process {
+    id: compositorProbe
+    command: ["hyprctl", "-j", "getoption", Compositor.QUIRK_OPTION]
+    running: false
+    stdout: StdioCollector {
+      id: probeOutput
+      onStreamFinished: snowglobe.finishCompositorProbe(probeOutput.text)
+    }
+  }
+
+  Timer {
+    id: probeTimeout
+    interval: Constants.COMPOSITOR_PROBE_TIMEOUT_MS
+    repeat: false
+    onTriggered: snowglobe.finishCompositorProbe("")
+  }
+
   // ---- Diagnostics / control --------------------------------------------
   // Read-only status plus two transient pause controls. Every value is bounded
   // and derived from local state; no caller-supplied path or code is accepted.
@@ -759,6 +849,9 @@ Item {
         quality: snowglobe.settings.quality,
         adaptiveScale: snowglobe.adaptiveScale,
         paused: snowglobe.paused,
+        compositor: snowglobe.compositorState,
+        compositorReason: snowglobe.compositorReason,
+        transparencyGuard: snowglobe.settings.transparencyGuard,
         surfaces: snowglobe.surfaceCount,
         screens: snowglobe.screenCount,
         trackedWindows: snowglobe.trackedWindows,
@@ -767,12 +860,19 @@ Item {
         builder: snowglobe.builderActive,
         snowmen: snowglobe.snowmen.length,
         plows: snowglobe.plowCount(),
-        plowCollected: snowglobe.plowTotal("plowCollected"),
-        plowUnloaded: snowglobe.plowTotal("plowUnloaded"),
+        plowCollected: snowglobe.simTotal("plowCollected"),
+        plowUnloaded: snowglobe.simTotal("plowUnloaded"),
         avalanches: snowglobe.simTotal("avalancheEvents"),
         avalancheArea: snowglobe.simTotal("avalancheArea"),
         state: snowglobe.stateStatus
       })
+    }
+
+    // Re-run the transparency probe, e.g. after fixing the Hyprland option and
+    // restarting Hyprland without restarting the shell.
+    function recheckCompositor(): string {
+      snowglobe.startCompositorProbe()
+      return JSON.stringify({ state: snowglobe.compositorState })
     }
 
     function pause(): void { snowglobe.paused = true }
@@ -941,6 +1041,7 @@ Item {
   }
 
   Component.onCompleted: {
+    startCompositorProbe()
     rebuildSimulations()
     // Collect geometry once even if the plugin starts disabled, so diagnostics
     // are meaningful immediately and banks exist as soon as it is enabled.

@@ -4,6 +4,117 @@ All notable changes to Snowglobe are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semantic versioning.
 
+## [1.2.0] — 2026-11-23 — Black-screen guard, cleanup and bug fixes
+
+### Fixed
+
+- **Full-screen black overlay.** On Hyprland 0.57.0 (and any config that still
+  sets `quirks:skip_non_kms_dmabuf_formats = true`), VMs with virtio-gpu and
+  Intel Gen6–Gen8 GPUs are offered no alpha-capable buffer formats. Qt then
+  creates the overlay as XR24 and every transparent pixel comes out opaque
+  black, hiding the whole desktop. No client-side surface flag can fix that, so
+  Snowglobe now asks `hyprctl` once at start-up and **does not map the overlay**
+  when the compositor would strip alpha (mode `blocked`). The bar tooltip and
+  the settings panel say why and how to fix it. Nothing is mapped until the
+  probe answers (≤1.5 s), so there is no black flash either. A new
+  **Black-screen guard** setting (`transparencyGuard`, default on) turns the
+  check off for setups known to be fine.
+- **Surfaces are mapped only once fully configured.** The layer surface waits
+  one event-loop turn after creation, so colour, transparent surface format,
+  layer and input mask are all applied before the compositor sees a buffer.
+- **The simulation kept running while snowfall was off or paused.** An Item's
+  `visible` stays true when its window is hidden, so the frame loop, the physics
+  and four full-screen canvases kept working at 30 Hz with nothing on screen.
+  `MonitorScene` now stops with its window and does not replay the gap as one
+  big step when it comes back.
+- **Fullscreen pause froze a frame of snow in mid-air.** Flakes and the plough
+  are hidden while a monitor is paused.
+- **Adaptive quality collapsed after a quality change.** The frame budget was
+  fixed when the simulation was created; going from High to Balanced measured
+  33 ms frames against a 16 ms budget, read a permanent overrun and throttled
+  the snowfall to 40%. `setQuality()` now updates the budget, and the frame
+  loop and the metric share one `frameIntervalFor()`.
+- **Opening or closing a window did not trigger fast geometry polling.** The
+  event list named `windowadded`/`windowremoved`, which Hyprland never sends.
+  It now uses the real names (`openwindow`, `closewindow`, …) and accepts
+  versioned variants (`movewindowv2`, `workspacev2`).
+- **Rotated (portrait) monitors** had width and height swapped in the ground
+  and window model; Hyprland's transform is now applied.
+- **Resolution/scale changes** without a screen being added or removed left the
+  particle field at the old size; it is re-synced on every geometry round.
+- **Builder mode could be entered with the overlay disabled**, and stayed armed
+  through a pause, so an exclusive-keyboard surface could reappear later. It
+  now requires a mapped overlay and exits when the overlay goes away or the
+  builder is switched off in settings.
+- Service version fell back to a stale `"0.1.0"` without a manifest.
+
+### Changed
+
+- Settings panel rewritten around a reusable `SettingRow` component and a
+  data-driven diagnostics list (about 40% less QML, same rows), plus the new
+  guard switch and a Transparency diagnostic.
+- `snowglobe status` reports `compositor`, `compositorReason` and
+  `transparencyGuard`; new `snowglobe recheckCompositor` IPC call.
+- Removed the `plowTotal` alias and the misleading `geometryPoll` binding.
+
+### Added
+
+- `js/Compositor.js` (pure, unit-tested probe parsing and gating).
+- `tests/blackscreen.test.js`; QML tests for the guard, builder exit and the
+  hidden-overlay frame loop; `Process`/`StdioCollector` test stubs.
+
+## [1.1.2] — 2026-11-22 — Step 1: Stabilize
+
+First of a step-by-step modernisation towards the reference video
+(see `docs/VIDEO_SPEC.md`). This release changes no visuals on purpose.
+
+### Fixed
+
+- **`plowEnabled` was reset by every bar write.** `Settings.toEntry()` copied a
+  hand-written list of keys that omitted it, so toggling snowfall or calling
+  `snowglobe.bar configure` silently put the plough back to its default. The key
+  list is now derived from `DEFAULTS`, so a future setting cannot be forgotten.
+- **Manifest drift.** `plowEnabled` was missing from the manifest defaults and
+  schema; it is now declared (as a boolean, a type the schema already uses).
+- **Idle canvases were repainted every tick.** The pressed-track and plough
+  canvases each uploaded a full-screen texture ~30 times per second even when
+  nothing was drawn on them. They now repaint only while they hold something,
+  plus one clearing pass. The flake and bank canvases are unchanged.
+- Removed `STATE_VERSION` / `MAX_STATE_BYTES` from `Constants.js`: stale copies of
+  values that `State.js` owns (the copy said schema 1, the real one is 2).
+- **Abandoning a snowball destroyed the snow it had gathered.** Pressing in a pile
+  and rolling while the pointer was more than ~12 px under the pile's surface,
+  then pressing Escape / releasing a stroke too small to keep / losing the press,
+  gave back **0%** of the snow and left a permanent dent. `returnSnow()` only
+  looked for a surface at or below the ball, but the ball sits *inside* the pile.
+  It now finds the surface whose snow contains the ball (`Collision.surfaceHolding`),
+  and any remainder that does not fit back as a mound is spread wider and finally
+  poured into the nearest free space (`SnowBank.fillNearest`), so snow is lost only
+  when the bank is genuinely full. Measured with the roller in pure JS: deep pile
+  0% → 100% returned, pile at its limit 60% → 100%.
+- **A QML test that failed ~50% of runs (8/8 on the original).** "Escape returns
+  carried snow" paused the whole simulation to stop snowfall, but the rolling ball
+  advances inside that same physics step, so the roller was frozen too and the
+  check only measured how much snow lay under the press point. It now stops only
+  snow landing and the plough (`setSnowFrozen`). Its tolerance was 12% of the
+  whole pile (~25x the amount being tested) and is now 5% of the carried snow; the
+  tiny-stroke check went from 5% of the pile to 10 units. Both fail every time
+  when the old `returnSnow()` is put back.
+
+### Added
+
+- `tests/stability.test.js`: settings round-trip, manifest/Settings/CHANGELOG
+  consistency, i18n key audit, QML-JS syntax audit, canvas-gating audit.
+- `tests/snow-return.test.js`: snow conservation when a rolled ball is abandoned
+  (deep pile, pile at its limit, window cap above must not steal the snow, full
+  bank must not be overfilled).
+- QML test: idle track/plough canvases perform no repaints; rolling a ball wakes
+  the track canvas. Paint counters are exposed on `MonitorScene`.
+- `tests/qml/compare.py`: renders the plugin next to a frame of the reference video.
+- Settings panel: a **Snowplough** switch for `plowEnabled`, which had no UI at all.
+- `scripts/` (install, uninstall, validate, package) and `docs/VIDEO_SPEC.md`,
+  which the README already referenced but the archive did not contain.
+
 ## [1.1.1] — 2026-11-22 — Transparent overlay fix and video-matched snow look
 
 ### Fixed

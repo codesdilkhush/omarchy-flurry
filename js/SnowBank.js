@@ -328,6 +328,33 @@ function takeFromSegment(bank, index, amount) {
 // Put gathered snow back (an abandoned or too-small snowball). `area` is in
 // square pixels; it is spread over `reach` segments each side of x so the
 // returned snow forms a soft mound instead of a spike. Capped by the limits.
+// Last resort for returning snow: pour it into the nearest free capacity,
+// working outward from x. giveBack() lays a soft mound and drops whatever lands
+// on a segment that is already at its limit; this never drops snow while any
+// segment still has room, so mass is lost only when the bank is truly full.
+// Bounded by the segment count, allocation-free. Returns the area placed.
+function fillNearest(bank, x, area) {
+  if (!(area > 0)) return 0
+  var units = area / bank.segmentWidth
+  var left = units
+  var centre = indexAt(bank, x)
+  for (var d = 0; d < bank.segments && left > 1e-6; d++) {
+    for (var side = 0; side < 2 && left > 1e-6; side++) {
+      if (d === 0 && side === 1) break
+      var i = side === 0 ? centre - d : centre + d
+      if (i < 0 || i >= bank.segments) continue
+      var room = bank.limit[i] - bank.heights[i]
+      if (!(room > 0)) continue
+      var take = room < left ? room : left
+      bank.heights[i] += take
+      left -= take
+    }
+  }
+  var placed = (units - left) * bank.segmentWidth
+  if (placed > 0) bank.revision++
+  return placed
+}
+
 function giveBack(bank, x, area, reach) {
   if (!(area > 0)) return 0
   var spread = Math.max(1, Math.floor(reach || 8))
@@ -363,6 +390,7 @@ function clear(bank) {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    fillNearest: fillNearest,
     create: create,
     indexAt: indexAt,
     heightAt: heightAt,

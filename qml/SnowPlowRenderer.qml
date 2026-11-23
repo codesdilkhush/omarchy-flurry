@@ -12,6 +12,18 @@ Canvas {
   // Default Canvas.Image backing keeps the vehicle layer alpha-correct.
   antialiasing: true
 
+  // Idle gating, as in SnowTrackRenderer: the vehicle is off-screen most of the
+  // time, so the canvas only repaints while it is visible, plus one clearing pass.
+  property bool hasInk: false
+  property int paintCount: 0
+
+  function wantsPaint() {
+    var sim = plowView.simulation
+    var p = sim && sim.plow
+    var visibleNow = p && p.state !== "idle" && p.state !== "unloading"
+    return plowView.hasInk || visibleNow === true
+  }
+
   onAvailableChanged: if (available) plowView.requestPaint()
   onVisibleChanged: if (visible) plowView.requestPaint()
 
@@ -21,11 +33,14 @@ Canvas {
     ctx.globalCompositeOperation = "source-over"
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, width, height)
+    plowView.paintCount++
+    plowView.hasInk = false
     var sim = plowView.simulation
     if (!sim || !sim.plow) return
     var p = sim.plow
     // Idle and unloading happen off-screen; nothing to draw there.
     if (p.state === "idle" || p.state === "unloading") return
+    plowView.hasInk = true
 
     ctx.save()
     ctx.translate(p.x, p.y + p.bounce)

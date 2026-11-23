@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "qml/components"
 import "js/Settings.js" as Settings
 
 // Native settings popup. Everything visible goes through the plugin's own
@@ -19,9 +20,14 @@ Panel {
   readonly property var cfg: Settings.normalize(settings)
   readonly property var service: root.hostWidget ? root.hostWidget.service : null
   readonly property bool snowfallActive: root.cfg.enabled && root.cfg.overlay === "passive"
+  readonly property bool blocked: root.service !== null && root.service.mode === "blocked"
+
+  property bool confirmReset: false
+  property bool confirmClearSnowmen: false
 
   Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
+  // ---- Writes --------------------------------------------------------------
   function write(next) {
     if (root.hostWidget && typeof root.hostWidget.write === "function") root.hostWidget.write(next)
     else root.settings = Settings.toEntry(next, root.moduleName)
@@ -34,6 +40,12 @@ Panel {
     root.write(out)
   }
 
+  function flip(key) {
+    var change = ({})
+    change[key] = !root.cfg[key]
+    root.patch(change)
+  }
+
   // Turning snowfall on must restore the click-through surface, not just flip
   // `enabled`: with overlay="disabled" the surface is unmapped. The bar widget
   // owns that rule, so the panel asks it instead of keeping a second copy.
@@ -42,12 +54,10 @@ Panel {
       root.hostWidget.toggleSnowfall()
       return
     }
-    if (root.cfg.enabled && root.cfg.overlay === "passive") root.patch({ enabled: false })
+    if (root.snowfallActive) root.patch({ enabled: false })
     else root.patch({ enabled: true, overlay: "passive" })
   }
 
-  // Object literals cannot use a variable property name here, so build the
-  // one-key patch explicitly.
   function cycleSetting(key, options) {
     var i = options.indexOf(root.cfg[key])
     var change = ({})
@@ -55,36 +65,44 @@ Panel {
     root.patch(change)
   }
 
-  property bool confirmReset: false
-  property bool confirmClearSnowmen: false
-
+  // Destructive actions take two clicks; the second must follow within 4 s.
   function clearSnowmen() {
-    if (!confirmClearSnowmen) {
-      confirmClearSnowmen = true
+    if (!root.confirmClearSnowmen) {
+      root.confirmClearSnowmen = true
       return
     }
-    confirmClearSnowmen = false
+    root.confirmClearSnowmen = false
     if (root.service) root.service.clearSnowmen()
   }
 
   function resetSettings() {
-    if (!confirmReset) {
-      confirmReset = true
+    if (!root.confirmReset) {
+      root.confirmReset = true
       return
     }
-    confirmReset = false
+    root.confirmReset = false
     root.write(Settings.toEntry(Settings.DEFAULTS, root.moduleName))
   }
 
+  function toggleBuilder() {
+    if (!root.service) return
+    if (root.service.builderActive) root.service.exitBuilder()
+    else root.service.enterBuilder()
+    root.close()
+  }
+
+  function serviceValue(name) {
+    if (!root.service) return strings.t("diag.unavailable")
+    return String(root.service[name])
+  }
+
   Timer {
-    id: confirmTimer
     interval: 4000
     running: root.confirmReset
     onTriggered: root.confirmReset = false
   }
 
   Timer {
-    id: clearConfirmTimer
     interval: 4000
     running: root.confirmClearSnowmen
     onTriggered: root.confirmClearSnowmen = false
@@ -134,20 +152,32 @@ Panel {
             anchors.right: parent.right
             anchors.verticalCenter: title.verticalCenter
             textFormat: Text.PlainText
-            text: root.snowfallActive ? strings.t("state.on") : strings.t("state.off")
+            text: root.blocked ? strings.t("state.blocked")
+              : (root.snowfallActive ? strings.t("state.on") : strings.t("state.off"))
             color: Commons.Color.muted
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
         }
 
+        // Shown only when the overlay is held back because it would render
+        // black; says why and what fixes it.
+        Text {
+          width: parent.width
+          visible: root.blocked
+          wrapMode: Text.WordWrap
+          textFormat: Text.PlainText
+          text: strings.t("panel.blockedHelp")
+          color: Commons.Color.muted
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          bottomPadding: Style.space(6)
+        }
+
         PanelSeparator { width: parent.width }
 
         // ---- Overview -----------------------------------------------------
-        PanelSectionHeader {
-          width: parent.width
-          text: strings.t("section.overview")
-        }
+        PanelSectionHeader { width: parent.width; text: strings.t("section.overview") }
 
         Toggle {
           width: parent.width
@@ -156,411 +186,138 @@ Panel {
           onClicked: root.toggleSnowfall()
         }
 
-        Item {
+        SettingRow {
           width: parent.width
-          height: 38
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("row.surface")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.cfg.overlay === "passive" ? strings.t("value.clickthrough") : strings.t("value.hidden")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.cycleSetting("overlay", ["passive", "disabled"])
-          }
+          label: strings.t("row.surface")
+          value: root.cfg.overlay === "passive" ? strings.t("value.clickthrough") : strings.t("value.hidden")
+          onClicked: root.cycleSetting("overlay", Settings.OVERLAY_MODES)
         }
 
-        Item {
+        SettingRow {
           width: parent.width
-          height: 38
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("row.layer")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.cfg.layer === "behind" ? strings.t("value.behind") : strings.t("value.above")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.cycleSetting("layer", ["behind", "above"])
-          }
+          label: strings.t("row.layer")
+          value: root.cfg.layer === "behind" ? strings.t("value.behind") : strings.t("value.above")
+          onClicked: root.cycleSetting("layer", Settings.LAYERS)
         }
 
-        Item {
+        SettingRow {
           width: parent.width
-          height: 38
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("row.quality")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: strings.t("quality." + root.cfg.quality)
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.cycleSetting("quality", Settings.QUALITIES)
-          }
+          label: strings.t("row.quality")
+          value: strings.t("quality." + root.cfg.quality)
+          onClicked: root.cycleSetting("quality", Settings.QUALITIES)
         }
 
         PanelSeparator { width: parent.width }
 
         // ---- Behavior -----------------------------------------------------
-        PanelSectionHeader {
-          width: parent.width
-          text: strings.t("section.behavior")
-        }
+        PanelSectionHeader { width: parent.width; text: strings.t("section.behavior") }
 
         Toggle {
           width: parent.width
           label: strings.t("row.windowSnow")
           checked: root.cfg.accumulateOnWindows
-          onClicked: root.patch({ accumulateOnWindows: !root.cfg.accumulateOnWindows })
+          onClicked: root.flip("accumulateOnWindows")
         }
 
         Toggle {
           width: parent.width
           label: strings.t("row.builder")
           checked: root.cfg.builderEnabled
-          onClicked: root.patch({ builderEnabled: !root.cfg.builderEnabled })
+          onClicked: root.flip("builderEnabled")
+        }
+
+        Toggle {
+          width: parent.width
+          label: strings.t("row.plow")
+          checked: root.cfg.plowEnabled
+          onClicked: root.flip("plowEnabled")
         }
 
         Toggle {
           width: parent.width
           label: strings.t("row.adaptive")
           checked: root.cfg.adaptiveQuality
-          onClicked: root.patch({ adaptiveQuality: !root.cfg.adaptiveQuality })
+          onClicked: root.flip("adaptiveQuality")
         }
 
         Toggle {
           width: parent.width
           label: strings.t("row.fullscreen")
           checked: root.cfg.pauseOnFullscreen
-          onClicked: root.patch({ pauseOnFullscreen: !root.cfg.pauseOnFullscreen })
+          onClicked: root.flip("pauseOnFullscreen")
+        }
+
+        Toggle {
+          width: parent.width
+          label: strings.t("row.guard")
+          checked: root.cfg.transparencyGuard
+          onClicked: root.flip("transparencyGuard")
         }
 
         PanelSeparator { width: parent.width }
 
         // ---- Snowmen ------------------------------------------------------
-        PanelSectionHeader {
+        PanelSectionHeader { width: parent.width; text: strings.t("section.snowmen") }
+
+        SettingRow {
           width: parent.width
-          text: strings.t("section.snowmen")
+          label: strings.t("row.builderMode")
+          value: root.service && root.service.builderActive ? strings.t("value.exit") : strings.t("value.enter")
+          interactive: root.service !== null && (root.service.builderActive || root.service.overlayMapped)
+          onClicked: root.toggleBuilder()
         }
 
-        Item {
+        SettingRow {
           width: parent.width
-          height: 38
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("row.builderMode")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service && root.service.builderActive
-              ? strings.t("value.exit") : strings.t("value.enter")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              if (!root.service) return
-              if (root.service.builderActive) root.service.exitBuilder()
-              else root.service.enterBuilder()
-              root.close()
-            }
-          }
+          compact: true
+          interactive: false
+          label: strings.t("row.savedSnowmen")
+          value: root.service ? String(root.service.snowmen.length) : "0"
         }
 
-        Item {
+        SettingRow {
           width: parent.width
-          height: 28
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("row.savedSnowmen")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service ? String(root.service.snowmen.length) : "0"
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-        }
-
-        Item {
-          width: parent.width
-          height: 38
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: root.confirmClearSnowmen ? strings.t("row.clearConfirm") : strings.t("row.clearSnowmen")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.confirmClearSnowmen ? strings.t("value.confirm") : ""
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.clearSnowmen()
-          }
+          label: root.confirmClearSnowmen ? strings.t("row.clearConfirm") : strings.t("row.clearSnowmen")
+          value: root.confirmClearSnowmen ? strings.t("value.confirm") : ""
+          onClicked: root.clearSnowmen()
         }
 
         PanelSeparator { width: parent.width }
 
         // ---- Diagnostics --------------------------------------------------
-        PanelSectionHeader {
-          width: parent.width
-          text: strings.t("section.diagnostics")
-        }
+        PanelSectionHeader { width: parent.width; text: strings.t("section.diagnostics") }
 
-        Item {
-          width: parent.width
-          height: 28
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("diag.mode")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service ? root.service.mode : strings.t("diag.unavailable")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-        }
-
-        Item {
-          width: parent.width
-          height: 28
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("diag.surfaces")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service ? String(root.service.surfaceCount) : strings.t("diag.unavailable")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-        }
-
-        Item {
-          width: parent.width
-          height: 28
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("diag.screens")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service ? String(root.service.screenCount) : strings.t("diag.unavailable")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-        }
-
-        Item {
-          width: parent.width
-          height: 28
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("diag.windows")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service ? String(root.service.trackedWindows) : strings.t("diag.unavailable")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-        }
-
-        Item {
-          width: parent.width
-          height: 28
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("diag.banks")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service ? String(root.service.bankCount) : strings.t("diag.unavailable")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-        }
-
-        Item {
-          width: parent.width
-          height: 28
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("diag.state")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service ? root.service.stateStatus : strings.t("diag.unavailable")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-            width: parent.width * 0.55
-            horizontalAlignment: Text.AlignRight
-          }
-        }
-
-        Item {
-          width: parent.width
-          height: 28
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: strings.t("diag.version")
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.service ? root.service.version : strings.t("diag.unavailable")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
+        Repeater {
+          model: [
+            { key: "diag.mode", field: "mode" },
+            { key: "diag.compositor", field: "compositorState" },
+            { key: "diag.surfaces", field: "surfaceCount" },
+            { key: "diag.screens", field: "screenCount" },
+            { key: "diag.windows", field: "trackedWindows" },
+            { key: "diag.banks", field: "bankCount" },
+            { key: "diag.state", field: "stateStatus" },
+            { key: "diag.version", field: "version" }
+          ]
+          delegate: SettingRow {
+            required property var modelData
+            width: contentColumn.width
+            compact: true
+            interactive: false
+            label: strings.t(modelData.key)
+            value: root.serviceValue(modelData.field)
           }
         }
 
         PanelSeparator { width: parent.width }
 
         // ---- Maintenance --------------------------------------------------
-        PanelSectionHeader {
-          width: parent.width
-          text: strings.t("section.maintenance")
-        }
+        PanelSectionHeader { width: parent.width; text: strings.t("section.maintenance") }
 
-        Item {
+        SettingRow {
           width: parent.width
-          height: 38
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: root.confirmReset ? strings.t("row.resetConfirm") : strings.t("row.reset")
-            color: Commons.Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.right: parent.right
-            textFormat: Text.PlainText
-            text: root.confirmReset ? strings.t("value.confirm") : ""
-            color: Commons.Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.resetSettings()
-          }
+          label: root.confirmReset ? strings.t("row.resetConfirm") : strings.t("row.reset")
+          value: root.confirmReset ? strings.t("value.confirm") : ""
+          onClicked: root.resetSettings()
         }
       }
     }
