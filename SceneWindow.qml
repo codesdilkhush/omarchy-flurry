@@ -9,8 +9,9 @@ import "lib/draw.js" as Draw
 import "lib/store.js" as Store
 
 // One screen's weather. A transparent layer over the windows that takes no
-// input except on the things you can touch: decorations, visitors, and, in
-// decorate mode, the whole screen.
+// input except on the things you can touch: decorations, visitors, snow
+// deep enough to make a snowball from, snowballs, and, in decorate mode,
+// the whole screen.
 PanelWindow {
   id: sceneWin
 
@@ -165,6 +166,53 @@ PanelWindow {
     repeat: true
     running: frames.running
     onTriggered: sceneWin.heapTick++
+  }
+
+  // ------------------------------------------------------------ snowballs
+
+  // Where the pointer can take hold of snow or a ball right now. Refreshed
+  // often while a ball moves, rarely while everything lies still.
+  readonly property bool snowballsOn: live && !decorating && !!service && service.snowballsOn
+  property var zones: []
+  readonly property var noZone: ({ x: 0, y: 0, w: 0, h: 0 })
+  function zone(i) { return snowballsOn && i < zones.length ? zones[i] : noZone }
+  property bool ballsMoving: false
+
+  Timer {
+    interval: sceneWin.ballsMoving ? 50 : 200
+    repeat: true
+    running: sceneWin.snowballsOn
+    onTriggered: {
+      sceneWin.ballsMoving = Sim.ballsMoving(sceneWin.world)
+      var next = Sim.touchZones(sceneWin.world, 4, 14)
+      if (JSON.stringify(next) !== JSON.stringify(sceneWin.zones)) sceneWin.zones = next
+    }
+  }
+  onSnowballsOnChanged: {
+    if (snowballsOn || !world) return
+    Sim.letGo(world)
+    zones = []
+  }
+
+  // Press on snow to scoop a handful, or on a ball to pick it up; drag to
+  // roll or carry it; let go to throw it. Input only reaches this where the
+  // mask lets it (the zones), and once pressed the pointer stays with it
+  // until it is released, wherever it goes.
+  MouseArea {
+    id: snowHands
+    anchors.fill: parent
+    enabled: sceneWin.snowballsOn
+    hoverEnabled: true
+    acceptedButtons: Qt.LeftButton
+    cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+    onPressed: function(mouse) {
+      var got = Sim.grabSnow(sceneWin.world, mouse.x, mouse.y)
+      if (!got) { mouse.accepted = false; return }
+      sceneWin.ballsMoving = true
+    }
+    onPositionChanged: function(mouse) { if (pressed) Sim.dragSnow(sceneWin.world, mouse.x, mouse.y) }
+    onReleased: Sim.letGo(sceneWin.world)
+    onCanceled: Sim.letGo(sceneWin.world)
   }
 
   Canvas {
@@ -580,6 +628,21 @@ PanelWindow {
     Region { item: yeti.visible ? yeti : null }
     Region { item: menu.visible ? menu : null }
     Region { item: toolbar.visible ? toolbar : null }
+    // Snow and snowballs you can take hold of (see touchZones in sim.js).
+    Region { x: sceneWin.zone(0).x; y: sceneWin.zone(0).y; width: sceneWin.zone(0).w; height: sceneWin.zone(0).h }
+    Region { x: sceneWin.zone(1).x; y: sceneWin.zone(1).y; width: sceneWin.zone(1).w; height: sceneWin.zone(1).h }
+    Region { x: sceneWin.zone(2).x; y: sceneWin.zone(2).y; width: sceneWin.zone(2).w; height: sceneWin.zone(2).h }
+    Region { x: sceneWin.zone(3).x; y: sceneWin.zone(3).y; width: sceneWin.zone(3).w; height: sceneWin.zone(3).h }
+    Region { x: sceneWin.zone(4).x; y: sceneWin.zone(4).y; width: sceneWin.zone(4).w; height: sceneWin.zone(4).h }
+    Region { x: sceneWin.zone(5).x; y: sceneWin.zone(5).y; width: sceneWin.zone(5).w; height: sceneWin.zone(5).h }
+    Region { x: sceneWin.zone(6).x; y: sceneWin.zone(6).y; width: sceneWin.zone(6).w; height: sceneWin.zone(6).h }
+    Region { x: sceneWin.zone(7).x; y: sceneWin.zone(7).y; width: sceneWin.zone(7).w; height: sceneWin.zone(7).h }
+    Region { x: sceneWin.zone(8).x; y: sceneWin.zone(8).y; width: sceneWin.zone(8).w; height: sceneWin.zone(8).h }
+    Region { x: sceneWin.zone(9).x; y: sceneWin.zone(9).y; width: sceneWin.zone(9).w; height: sceneWin.zone(9).h }
+    Region { x: sceneWin.zone(10).x; y: sceneWin.zone(10).y; width: sceneWin.zone(10).w; height: sceneWin.zone(10).h }
+    Region { x: sceneWin.zone(11).x; y: sceneWin.zone(11).y; width: sceneWin.zone(11).w; height: sceneWin.zone(11).h }
+    Region { x: sceneWin.zone(12).x; y: sceneWin.zone(12).y; width: sceneWin.zone(12).w; height: sceneWin.zone(12).h }
+    Region { x: sceneWin.zone(13).x; y: sceneWin.zone(13).y; width: sceneWin.zone(13).w; height: sceneWin.zone(13).h }
     // One slot per decoration (3 trees, 12 snowmen, 24 gifts at most).
     Region { item: sceneWin.touchable(0) }
     Region { item: sceneWin.touchable(1) }

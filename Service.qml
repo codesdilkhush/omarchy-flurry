@@ -26,6 +26,7 @@ Item {
   readonly property string effect: saved.effect
   readonly property real intensity: saved.intensity
   readonly property bool plowOn: saved.plow
+  readonly property bool snowballsOn: saved.snowballs
   readonly property var effects: Store.EFFECTS
 
   // Half the particles, and a 30 fps cap, on battery.
@@ -57,6 +58,7 @@ Item {
   function setIntensity(v) { update(function(s) { s.intensity = Number(v) }) }
   function setVisitors(on) { update(function(s) { s.visitors = !!on }) }
   function setPlow(on) { update(function(s) { s.plow = !!on }) }
+  function setSnowballs(on) { update(function(s) { s.snowballs = !!on }) }
   function setBatterySaver(on) { update(function(s) { s.batterySaver = !!on }) }
 
   Process {
@@ -564,6 +566,7 @@ Item {
     function santa(): string { return root.summonSanta() ? "ho ho ho" : "no screen" }
     function lights(): string { return root.focusedLights() }
     function plow(): string { return root.summonPlow() ? "on its way" : "already out" }
+    function snowballs(): string { root.setSnowballs(!root.saved.snowballs); return root.saved.snowballs ? "on" : "off" }
     function yeti(): string { return root.summonYeti() ? "grr" : "no screen" }
     function clear(): string { root.clearDecorations(); return "ok" }
     function friendCode(): string { if (!root.friendCode) root.setupFriends(""); return root.friendCode || "creating, ask again" }
