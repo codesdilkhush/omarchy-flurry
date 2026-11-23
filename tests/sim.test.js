@@ -266,3 +266,93 @@ test("windows never lose their snow to the plow", () => {
   assert.ok(sum(w.surfaces.a.bins) > 0.9 * 5 * w.surfaces.a.bins.length)
   assert.ok(!w.surfaces.__plow)
 })
+
+// ------------------------------------------------------------------ light strings
+
+function stringWorld(win) {
+  const w = S.createWorld(1280, 720, { effect: "snow", intensity: 0.25, plow: false })
+  S.setSurfaces(w, [win], 0)
+  return w
+}
+function runStrings(w, seconds, rect, spec) {
+  for (let t = 0; t < seconds; t += 1 / 60) {
+    const r = typeof rect === "function" ? rect(t) : rect
+    S.setSurfaces(w, [r], w.time); S.setStrings(w, spec(r)); S.step(w, 1 / 60)
+  }
+}
+const spec = r => [{ id: "s:" + r.id, surface: r.id, palette: "multi" }]
+
+test("a light string hangs in even swags between clips on the window's top", () => {
+  const win = { id: "t", x: 200, y: 150, w: 600, h: 300 }
+  const w = stringWorld(win)
+  runStrings(w, 4, win, spec)
+  const L = w.strings["s:t"]
+  assert.equal(L.n, 4)
+  const m = 10
+  for (let j = 0; j < L.n; j++) {
+    const clip = L.pts[j * m], mid = L.pts[j * m + m / 2]
+    assert.ok(Math.abs(clip.y - (win.y + 2)) < 0.01, "clip on the edge")
+    const sag = mid.y - clip.y
+    assert.ok(sag > 15 && sag < 40, "sag " + sag)
+  }
+  assert.ok(L.bulbs.length >= 18)
+  for (const b of L.bulbs) assert.ok(Math.abs(b.theta) < 0.05, "bulbs hang straight at rest")
+})
+
+test("dragging the window swings the lights, and they settle", () => {
+  const win = { id: "t", x: 200, y: 150, w: 600, h: 300 }
+  const w = stringWorld(win)
+  runStrings(w, 3, win, spec)
+  const L = w.strings["s:t"]
+  const restSag = L.pts[5].y - L.pts[0].y
+  // Fling right 300 px in 0.2 s, then stop.
+  let maxTilt = 0, minSag = restSag
+  runStrings(w, 0.6, t => Object.assign({}, win, { x: win.x + Math.min(300, 1500 * t) }), r => {
+    const S2 = w.strings["s:t"]
+    if (S2) { maxTilt = Math.max(maxTilt, ...S2.bulbs.map(b => Math.abs(b.theta))); minSag = Math.min(minSag, S2.pts[5].y - S2.pts[0].y) }
+    return spec(r)
+  })
+  assert.ok(maxTilt > 0.25, "bulbs swing: " + maxTilt)
+  const moved = Object.assign({}, win, { x: win.x + 300 })
+  runStrings(w, 6, moved, spec)
+  const L2 = w.strings["s:t"]
+  assert.ok(Math.abs(L2.pts[0].x - (moved.x + 10)) < 0.01, "clips follow the window")
+  assert.ok(Math.abs((L2.pts[5].y - L2.pts[0].y) - restSag) < 1.5, "settles back to its sag")
+  for (const b of L2.bulbs) assert.ok(Math.abs(b.theta) < 0.05)
+})
+
+test("resizing re-spaces the clips and changes their count only when needed", () => {
+  const win = { id: "t", x: 100, y: 100, w: 600, h: 300 }
+  const w = stringWorld(win)
+  runStrings(w, 1, win, spec)
+  const phase = w.strings["s:t"].bulbs[0].phase
+  runStrings(w, 1, Object.assign({}, win, { w: 700 }), spec)
+  assert.equal(w.strings["s:t"].n, 4, "same clips, wider swags")
+  runStrings(w, 1, Object.assign({}, win, { w: 1100 }), spec)
+  const L = w.strings["s:t"]
+  assert.equal(L.n, 7, "re-hung with more clips")
+  assert.equal(L.bulbs[0].phase, phase, "bulbs keep their twinkle")
+  const last = L.pts[L.pts.length - 1]
+  assert.ok(Math.abs(last.x - (100 + 1100 - 10)) < 0.01)
+})
+
+test("a string comes down with its window, and never rises above the top edge", () => {
+  const win = { id: "t", x: 100, y: 300, w: 500, h: 200 }
+  const w = stringWorld(win)
+  // Yank the window down fast: the wire may lag, but stays on the window.
+  for (let t = 0; t < 0.5; t += 1 / 60) {
+    const r = Object.assign({}, win, { y: win.y + Math.min(250, 2500 * t) })
+    S.setSurfaces(w, [r], w.time); S.setStrings(w, spec(r)); S.step(w, 1 / 60)
+    for (const p of w.strings["s:t"].pts) assert.ok(p.y >= r.y + 0.99)
+  }
+  S.setSurfaces(w, [], w.time); S.setStrings(w, [])
+  assert.deepEqual(Object.keys(w.strings), [])
+})
+
+test("surfaceAt finds the front window under a point", () => {
+  const w = S.createWorld(1280, 720, {})
+  S.setSurfaces(w, [{ id: "back", x: 100, y: 100, w: 400, h: 300, z: 2 }, { id: "front", x: 300, y: 200, w: 400, h: 300, z: 1 }], 0)
+  assert.equal(S.surfaceAt(w, 350, 250), "front")
+  assert.equal(S.surfaceAt(w, 150, 150), "back")
+  assert.equal(S.surfaceAt(w, 900, 600), null)
+})

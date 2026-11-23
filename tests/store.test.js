@@ -53,3 +53,20 @@ test("a received tree with junk ornaments is cleaned", () => {
   const t = S.normalizeTree({ ornaments: [{ kind: "bomb", u: 9, v: -3, color: "red;" }] })
   assert.deepStrictEqual(JSON.parse(JSON.stringify(t.ornaments[0])), { kind: "bauble", u: 1, v: 0, color: S.BAUBLE_COLORS[0] })
 })
+
+test("window light strings normalize and are capped", () => {
+  const s = S.normalize({ strings: [{ windowClass: "kitty", palette: "multi" }, { windowClass: "", palette: "warm" },
+    { windowClass: "firefox", palette: "lava" }, null].concat(Array.from({ length: 20 }, (_, i) => ({ windowClass: "c" + i }))) })
+  assert.strictEqual(s.strings.length, S.MAX_STRINGS)
+  assert.strictEqual(s.strings[0].windowClass, "kitty")
+  assert.strictEqual(s.strings[0].palette, "multi")
+  assert.strictEqual(s.strings[1].palette, "warm")
+  assert.ok(/^[a-z0-9]+$/i.test(s.strings[0].id))
+  assert.deepStrictEqual(S.normalize({}).strings, [])
+})
+
+test("snowballs are on unless switched off", () => {
+  assert.strictEqual(S.normalize({}).snowballs, true)
+  assert.strictEqual(S.normalize({ snowballs: false }).snowballs, false)
+  assert.strictEqual(S.normalize({ snowballs: "no" }).snowballs, true)
+})

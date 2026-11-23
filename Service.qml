@@ -26,6 +26,7 @@ Item {
   readonly property string effect: saved.effect
   readonly property real intensity: saved.intensity
   readonly property bool plowOn: saved.plow
+  readonly property bool snowballsOn: saved.snowballs
   readonly property var effects: Store.EFFECTS
 
   // Half the particles, and a 30 fps cap, on battery.
@@ -57,6 +58,7 @@ Item {
   function setIntensity(v) { update(function(s) { s.intensity = Number(v) }) }
   function setVisitors(on) { update(function(s) { s.visitors = !!on }) }
   function setPlow(on) { update(function(s) { s.plow = !!on }) }
+  function setSnowballs(on) { update(function(s) { s.snowballs = !!on }) }
   function setBatterySaver(on) { update(function(s) { s.batterySaver = !!on }) }
 
   Process {
@@ -172,7 +174,46 @@ Item {
   function openGift(id) {
     update(function(s) { for (var i = 0; i < s.gifts.length; i++) if (s.gifts[i].id === id) s.gifts[i].opened = true })
   }
-  function clearDecorations() { update(function(s) { s.trees = []; s.snowmen = []; s.gifts = [] }) }
+  function clearDecorations() { update(function(s) { s.trees = []; s.snowmen = []; s.gifts = []; s.strings = [] }) }
+
+  // Light strings belong to a window class, so they come back with the app.
+  function lightsFor(cls) {
+    for (var i = 0; i < root.saved.strings.length; i++) if (root.saved.strings[i].windowClass === cls) return root.saved.strings[i]
+    return null
+  }
+  // Hangs a string on windows of `cls`, or, when it has one, changes its colours.
+  function decorateWindow(cls) {
+    if (!cls) return ""
+    var have = lightsFor(cls)
+    if (!have && root.saved.strings.length >= Store.MAX_STRINGS) {
+      notify("That's a lot of lights", "Take a string down to hang another.")
+      return ""
+    }
+    var palette = "warm"
+    update(function(s) {
+      for (var i = 0; i < s.strings.length; i++) {
+        if (s.strings[i].windowClass !== cls) continue
+        var p = Store.STRING_PALETTES
+        palette = s.strings[i].palette = p[(p.indexOf(s.strings[i].palette) + 1) % p.length]
+        return
+      }
+      s.strings.push(Store.normalizeString({ windowClass: cls, palette: palette }))
+    })
+    return palette
+  }
+  function removeWindowLights(cls) {
+    update(function(s) { s.strings = s.strings.filter(function(l) { return l.windowClass !== cls }) })
+  }
+  // For `flurry lights`: on the focused window, cycling colours, then off.
+  function focusedLights() {
+    var t = Hyprland.activeToplevel
+    var ipc = t ? t.lastIpcObject : null
+    var cls = ipc ? String(ipc["class"] || "") : ""
+    if (!cls) return "no window"
+    var have = lightsFor(cls)
+    if (have && have.palette === Store.STRING_PALETTES[Store.STRING_PALETTES.length - 1]) { removeWindowLights(cls); return "off" }
+    return decorateWindow(cls) || "limit reached"
+  }
 
   // Decorate mode turns the overlay on the focused screen interactive.
   property string decorating: ""   // screen name, or "" when off
@@ -235,7 +276,7 @@ Item {
   // gather around it, so for those effects it is read from Hyprland's
   // socket, about 20 times a second. Rain and starfall do not need it.
 
-  readonly property bool wantsPointer: root.active && root.saved.effect !== "rain" && root.saved.effect !== "starfall"
+  readonly property bool wantsPointer: root.active && ((root.saved.effect !== "rain" && root.saved.effect !== "starfall") || root.saved.strings.length > 0)
   property var pointer: ({ x: 0, y: 0, vx: 0, vy: 0, present: false, stillFor: 0, at: 0 })
   readonly property string hyprSocket: {
     var dir = Quickshell.env("XDG_RUNTIME_DIR"), sig = Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
@@ -523,7 +564,9 @@ Item {
     function intensity(value: string): string { root.setIntensity(Number(value)); return String(root.saved.intensity) }
     function decorate(): string { root.decorating ? root.stopDecorating() : root.startDecorating(); return root.decorating ? "decorating" : "done" }
     function santa(): string { return root.summonSanta() ? "ho ho ho" : "no screen" }
+    function lights(): string { return root.focusedLights() }
     function plow(): string { return root.summonPlow() ? "on its way" : "already out" }
+    function snowballs(): string { root.setSnowballs(!root.saved.snowballs); return root.saved.snowballs ? "on" : "off" }
     function yeti(): string { return root.summonYeti() ? "grr" : "no screen" }
     function clear(): string { root.clearDecorations(); return "ok" }
     function friendCode(): string { if (!root.friendCode) root.setupFriends(""); return root.friendCode || "creating, ask again" }

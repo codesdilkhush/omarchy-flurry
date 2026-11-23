@@ -13,7 +13,8 @@ Rectangle {
     { id: "tree", label: "Tree", glyph: "🎄" },
     { id: "snowman", label: "Snowman", glyph: "⛄" },
     { id: "bauble", label: "Bauble", glyph: "🔴" },
-    { id: "light", label: "Lights", glyph: "💡" },
+    { id: "light", label: "Tree lights", glyph: "💡" },
+    { id: "string", label: "Window lights", glyph: "✨" },
     { id: "candy", label: "Candy cane", glyph: "🍬" },
     { id: "star", label: "Star", glyph: "⭐" },
     { id: "erase", label: "Remove", glyph: "✕" }
@@ -38,7 +39,7 @@ Rectangle {
       delegate: Rectangle {
         required property var modelData
         readonly property bool selected: root.scene && root.scene.tool === modelData.id
-        width: 64; height: 50
+        width: Math.max(64, label.implicitWidth + 14); height: 50
         radius: Math.max(0, Style.cornerRadius - 2)
         color: selected ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.35)
              : (hover.hovered ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.15) : "transparent")
@@ -48,6 +49,7 @@ Rectangle {
           spacing: 2
           Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.glyph; font.pixelSize: 18 }
           Text {
+            id: label
             anchors.horizontalCenter: parent.horizontalCenter
             text: modelData.id === "tree" ? modelData.label + " " + (root.service ? root.service.saved.trees.length : 0) + "/3" : modelData.label
             color: Commons.Color.popups.text
