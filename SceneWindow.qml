@@ -102,6 +102,23 @@ PanelWindow {
     return rects
   }
 
+  // Every window that still exists, on any workspace: their snow is kept
+  // aside while they are out of sight instead of falling.
+  function aliveIds() {
+    var all = Hyprland.toplevels.values
+    var ids = []
+    for (var i = 0; i < all.length; i++) {
+      var ipc = all[i].lastIpcObject
+      ids.push(String(ipc && ipc.address ? ipc.address : all[i].address))
+    }
+    return ids
+  }
+
+  // True for a moment after any window here moved, so decorations riding
+  // windows only run their sway while it can matter.
+  property real lastSurfaceChange: -10
+  readonly property bool windowsMoving: clock - lastSurfaceChange < 1.5
+
   function syncWindows() {
     var rects = readWindows()
     var sig = rects.map(function(r) { return [r.id, r.x, r.y, r.w, r.h, r.floating ? 1 : 0, r.z].join(",") }).join(";")
@@ -109,7 +126,8 @@ PanelWindow {
     if (surfaceSig !== "") service.noteMotion()
     surfaceSig = sig
     windowRects = rects
-    Sim.setSurfaces(world, rects, clock)
+    lastSurfaceChange = clock
+    Sim.setSurfaces(world, rects, clock, aliveIds())
   }
 
   FrameAnimation {
@@ -141,7 +159,7 @@ PanelWindow {
   }
 
   Timer {
-    interval: 400
+    interval: 120
     repeat: true
     running: frames.running
     onTriggered: sceneWin.heapTick++
@@ -188,10 +206,10 @@ PanelWindow {
       if (!r) return null
       var x = r.x + place.windowFx * r.w
       var top = world ? Sim.restingY(world, r.id, x) : r.y
-      return { x: x, y: top === null ? r.y : top }
+      return { x: x, y: top === null ? r.y : top, surface: r.id }
     }
     var fx = place.fx * width
-    return { x: fx, y: place.fy >= 0.999 ? groundTop(fx) : place.fy * groundY }
+    return { x: fx, y: place.fy >= 0.999 ? groundTop(fx) : place.fy * groundY, surface: "" }
   }
 
   // Where something dropped at feet (x, y) belongs. A snowman let go just

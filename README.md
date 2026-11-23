@@ -36,12 +36,48 @@ Omarchy ships.
 
 ### Six kinds of weather
 
-- **Snow** settles on window tops and the ground. Drag a window and it slides off; close one and it falls.
+- **Snow** settles on window tops and the ground. Drag a window gently and it rides along; jerk or fling it and the snow slides, tears off the trailing edge and falls; stop hard and it's thrown forward. Close a window and its snow drops.
 - **Leaves** pile up and scatter when you brush the pointer through them.
 - **Starfall**: shooting stars that burst into sparks on your windows.
 - **Rain** splashes where it lands, with lightning now and then.
 - **Sakura** petals drift down and rest on your windows for a while.
 - **Fireflies** drift about and gather where the pointer rests.
+
+### How the snow behaves
+
+Every falling thing shares one gravity. Flakes, powder and petals reach their
+fall speed through drag in moving air: a slow wind, gusts that vary across the
+screen, and the wake of a fast pointer. Chunks are heavy and fall fast.
+
+Snow on a window is a height field that carries its own sliding speed. The
+window's motion is estimated from its position samples, and in the window's
+frame the snow feels gravity minus the window's acceleration:
+
+- **Friction.** It holds until the sideways pull beats static friction, then
+  slides, braked by kinetic friction, and sticks again once it stops. Each
+  patch grips a little differently, so a slab tears instead of moving as one.
+- **Cohesion and age.** Fresh powder is loose: it slides easily, smears, and
+  turns to dust. Over a couple of minutes it settles: it grips better, holds
+  steeper slopes, moves as slabs, and breaks off in chunks.
+- **Edges.** Snow that slides past an edge hangs there as a small cornice and
+  breaks off once it's too heavy. Piles steeper than the angle of repose
+  slump, and an over-full edge pours over on its own.
+- **Lift-off.** Drop a window (or stop it rising) faster than gravity and the
+  snow floats off and lands again.
+- **Spray and wind.** A fast-moving window strips loose powder into a trailing
+  plume; wind drifts loose snow downwind.
+- **Landing.** Chunks shed dust as they fall, break up when they hit hard, and
+  skid a little along whatever they land on. Rising windows scoop up the snow
+  falling onto them.
+- **Hidden, not lost.** Snow on a window behind another is hidden where it's
+  covered and shows again when the front window moves. A window on another
+  workspace keeps its snow until you come back. Resizing keeps the snow where
+  it lies and drops what the window no longer reaches.
+
+Leaves and petals fall like paper: they swing, tilt, and sink fastest through
+the middle of each swing. Resting ones slide to a stop, come off a window that
+lurches harder than they can hold, and lift in strong gusts. Snowmen standing
+on a window rock on a damped spring when it is dragged.
 
 ### Decorate
 
@@ -87,8 +123,11 @@ Everything draws on one canvas per screen in batched paths. On battery the
 effect is halved and capped at 30 fps (turn that off in the menu), and it
 stops while a fullscreen app is up. Hyprland sends no events during an
 interactive window drag, so while the effect is on the window list is
-refreshed over Hyprland's socket every 220 ms, and every 50 ms for two seconds
-after something moves. The pointer is read only for leaves and fireflies.
+refreshed over Hyprland's socket every 220 ms, and every frame for two seconds
+after something moves, so the physics sees a drag as smooth motion. The
+pointer is read for every effect but rain and starfall. The simulation costs
+about 0.25 ms a frame on a 2560×1440 screen with six windows at full snow
+(measured under node).
 
 ## Development
 
@@ -100,7 +139,9 @@ omarchy plugin validate .
 The simulation (`lib/sim.js`), drawing (`lib/draw.js`) and state
 (`lib/store.js`) are plain JavaScript, so they run under node as well as in the
 shell. `tests/render-preview.js` paints every effect to PNG with
-`@napi-rs/canvas` for checking the art without a desktop.
+`@napi-rs/canvas` for checking the art without a desktop, and
+`tests/render-physics.js` renders a filmstrip of a snowy window being flung
+and stopped (`docs/physics.png`).
 
 | File | What it is |
 |---|---|

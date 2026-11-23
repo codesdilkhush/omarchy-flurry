@@ -190,20 +190,30 @@ Item {
   // Hyprland's socket, not a process.
 
   property real lastMotion: 0
-  function noteMotion() { root.lastMotion = Date.now() }
+  function noteMotion() {
+    var idle = Date.now() - root.lastMotion >= 2000
+    root.lastMotion = Date.now()
+    // Waking from idle: poll fast at once instead of after the idle tick.
+    if (idle && windowPoll.running) { windowPoll.interval = root.fastPoll; windowPoll.restart() }
+  }
   readonly property bool active: root.loaded && root.saved.enabled
 
+  // While something moves the list is read every frame (about 60 times a
+  // second), so the snow physics sees a drag as the smooth motion it is and
+  // can tell a gentle drag from a jerk. Two seconds after the last change it
+  // drops back to a slow idle rate.
+  readonly property int fastPoll: 16
+  readonly property int idlePoll: 220
   Timer {
     id: windowPoll
     running: root.active
     repeat: true
-    interval: Date.now() - root.lastMotion < 2000 ? 50 : 220
+    interval: root.idlePoll
     onTriggered: {
       Hyprland.refreshToplevels()
-      interval = Date.now() - root.lastMotion < 2000 ? 50 : 220
+      interval = Date.now() - root.lastMotion < 2000 ? root.fastPoll : root.idlePoll
     }
   }
-
   Connections {
     target: Hyprland
     function onRawEvent(event) {
@@ -218,11 +228,12 @@ Item {
 
   // ---------------------------------------------------------- pointer feed
   //
-  // The overlay takes no input, so it cannot see the pointer. Leaves and
-  // fireflies need it, so only for them is the pointer read from Hyprland's
-  // socket, about 20 times a second.
+  // The overlay takes no input, so it cannot see the pointer. The air the
+  // pointer drags along scatters snow, leaves and petals and fireflies
+  // gather around it, so for those effects it is read from Hyprland's
+  // socket, about 20 times a second. Rain and starfall do not need it.
 
-  readonly property bool wantsPointer: root.active && (root.saved.effect === "leaves" || root.saved.effect === "fireflies")
+  readonly property bool wantsPointer: root.active && root.saved.effect !== "rain" && root.saved.effect !== "starfall"
   property var pointer: ({ x: 0, y: 0, vx: 0, vy: 0, present: false, stillFor: 0, at: 0 })
   readonly property string hyprSocket: {
     var dir = Quickshell.env("XDG_RUNTIME_DIR"), sig = Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
