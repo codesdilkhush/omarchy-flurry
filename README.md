@@ -74,6 +74,28 @@ frame the snow feels gravity minus the window's acceleration:
   workspace keeps its snow until you come back. Resizing keeps the snow where
   it lies and drops what the window no longer reaches.
 
+### The snow plow
+
+When snow along the bottom of the screen gets deep (on average 42% of the
+way to full), a yellow bulldozer drives in from the edge with its blade up,
+lowers it, and pushes the snow across and off the far side. It's part of
+the simulation, not an animation over it:
+
+- The blade scrapes the ground snow down to nothing, and what it scrapes
+  becomes a berm heaped against the blade. The berm grows to well over the
+  blade's top, and its weight slows the dozer down.
+- Chunks tumble off the berm's face, land ahead of it and get pushed again;
+  a berm over the blade's top curls powder over it.
+- The tracks' bottom run stays put on the ground while the top run moves,
+  the wheels and sprocket turn by the distance driven, the nose dips as the
+  berm pushes back, and the engine shakes it a little.
+- The exhaust puffs harder under load and drifts on the wind; the beacon
+  turns; snow settles on the cab roof and slides off when it pulls away.
+
+It leaves once its rear is past the edge, rests at least six seconds, and
+comes back from the other side next time the snow builds up. Turn it off in
+the menu (**Snow plow**), or call it now with `flurry plow`.
+
 Leaves and petals fall like paper: they swing, tilt, and sink fastest through
 the middle of each swing. Resting ones slide to a stop, come off a window that
 lurches harder than they can hold, and lift in strong gusts. Snowmen standing
@@ -108,7 +130,7 @@ Incoming gifts are size-checked and validated before anything is drawn.
 flurry toggle | on | off | next
 flurry effect rain
 flurry intensity 1.5
-flurry decorate | santa | yeti | clear
+flurry decorate | santa | yeti | plow | clear
 flurry code               # your friend code
 flurry add flurry1:…      # or with no argument, from the clipboard
 flurry note Ali "Merry Christmas!"
@@ -141,7 +163,9 @@ The simulation (`lib/sim.js`), drawing (`lib/draw.js`) and state
 shell. `tests/render-preview.js` paints every effect to PNG with
 `@napi-rs/canvas` for checking the art without a desktop, and
 `tests/render-physics.js` renders a filmstrip of a snowy window being flung
-and stopped (`docs/physics.png`).
+and stopped (`docs/physics.png`). `tests/render-plow.js` lets the snow pile
+up until the plow comes, then renders its pass and a close-up
+(`docs/plow.png`).
 
 | File | What it is |
 |---|---|

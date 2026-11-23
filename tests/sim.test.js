@@ -196,3 +196,73 @@ test("snow melts after switching effect", () => {
   run(w, 60, [{ id: "a", x: 100, y: 200, w: 500, h: 300 }])
   assert.ok(S.totalSnow(w) < before * 0.2)
 })
+
+// ------------------------------------------------------------------ the plow
+
+function snowyGround(fill) {
+  const w = S.createWorld(1280, 720, { effect: "snow", intensity: 0.25 })
+  const g = w.surfaces[S.GROUND_ID]
+  for (let i = 0; i < g.bins.length; i++) g.bins[i] = S.TUNING.snow.groundCap * fill * (0.8 + 0.4 * ((i * 7) % 10) / 10)
+  return w
+}
+
+test("the plow stays home while the ground is thin", () => {
+  const w = snowyGround(0.2)
+  run(w, 5)
+  assert.equal(w.plow, null)
+  assert.equal(w.plowRuns, 0)
+})
+
+test("the plow comes out when the ground fills, clears it, and leaves", () => {
+  const w = snowyGround(0.6)
+  run(w, 1)
+  assert.ok(w.plow, "plow is out")
+  let maxLoad = 0, sawRoof = false, sawSmoke = false
+  for (let t = 0; t < 60 && w.plow; t += 1 / 60) {
+    S.step(w, 1 / 60)
+    if (w.plow) maxLoad = Math.max(maxLoad, w.plow.load)
+    if (w.surfaces.__plow) sawRoof = true
+    if (w.particles.some(p => p.kind === "smoke")) sawSmoke = true
+  }
+  assert.equal(w.plow, null, "plow left the screen")
+  assert.ok(maxLoad > 50, "it pushed a berm")
+  assert.ok(sawRoof && sawSmoke)
+  assert.equal(w.surfaces.__plow, undefined, "its roof went with it")
+  // Let what it threw ahead settle, then the ground is clean apart from fresh snow.
+  assert.ok(S.groundFill(w) < 0.06, "ground clean: " + S.groundFill(w))
+})
+
+test("the plow returns when the snow builds up again", () => {
+  const w = snowyGround(0.6)
+  for (let t = 0; t < 70 && (w.plowRuns === 0 || w.plow); t += 1 / 60) S.step(w, 1 / 60)
+  assert.equal(w.plowRuns, 1)
+  const g = w.surfaces[S.GROUND_ID]
+  for (let i = 0; i < g.bins.length; i++) g.bins[i] = S.TUNING.snow.groundCap * 0.6
+  run(w, 3)
+  assert.equal(w.plowRuns, 1, "rests a few seconds first")
+  run(w, 5)
+  assert.equal(w.plowRuns, 2)
+  assert.equal(w.plow.dir, -1, "and comes from the other side")
+})
+
+test("the plow keeps away when switched off or another effect is on", () => {
+  const w = snowyGround(0.6)
+  S.setPlow(w, false)
+  run(w, 3)
+  assert.equal(w.plow, null)
+  const r = snowyGround(0.6)
+  S.setEffect(r, "rain")
+  run(r, 3)
+  assert.equal(r.plow, null)
+})
+
+test("windows never lose their snow to the plow", () => {
+  const w = snowyGround(0.6)
+  const win = { id: "a", x: 300, y: 300, w: 400, h: 200 }
+  S.setSurfaces(w, [win], 0)
+  w.surfaces.a.bins.fill(5)
+  w.surfaces.a.pack = 1
+  for (let t = 0; t < 60 && (w.plowRuns === 0 || w.plow); t += 1 / 60) { S.setSurfaces(w, [win], w.time); S.step(w, 1 / 60) }
+  assert.ok(sum(w.surfaces.a.bins) > 0.9 * 5 * w.surfaces.a.bins.length)
+  assert.ok(!w.surfaces.__plow)
+})
