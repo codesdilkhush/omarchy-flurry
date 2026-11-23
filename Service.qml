@@ -25,6 +25,7 @@ Item {
   readonly property bool isOn: saved.enabled
   readonly property string effect: saved.effect
   readonly property real intensity: saved.intensity
+  readonly property bool plowOn: saved.plow
   readonly property var effects: Store.EFFECTS
 
   // Half the particles, and a 30 fps cap, on battery.
@@ -55,6 +56,7 @@ Item {
   }
   function setIntensity(v) { update(function(s) { s.intensity = Number(v) }) }
   function setVisitors(on) { update(function(s) { s.visitors = !!on }) }
+  function setPlow(on) { update(function(s) { s.plow = !!on }) }
   function setBatterySaver(on) { update(function(s) { s.batterySaver = !!on }) }
 
   Process {
@@ -298,6 +300,12 @@ Item {
     onTriggered: { root.summonYeti(); interval = 60000 * (10 + Math.floor(Math.random() * 15)); restart() }
   }
 
+  // Sends the plow out on the screen in focus, snow or not.
+  function summonPlow() {
+    var scene = focusedScene()
+    return scene ? scene.callPlow() : false
+  }
+
   function summonSanta() {
     var scene = focusedScene()
     return scene ? scene.callSanta() : false
@@ -515,6 +523,7 @@ Item {
     function intensity(value: string): string { root.setIntensity(Number(value)); return String(root.saved.intensity) }
     function decorate(): string { root.decorating ? root.stopDecorating() : root.startDecorating(); return root.decorating ? "decorating" : "done" }
     function santa(): string { return root.summonSanta() ? "ho ho ho" : "no screen" }
+    function plow(): string { return root.summonPlow() ? "on its way" : "already out" }
     function yeti(): string { return root.summonYeti() ? "grr" : "no screen" }
     function clear(): string { root.clearDecorations(); return "ok" }
     function friendCode(): string { if (!root.friendCode) root.setupFriends(""); return root.friendCode || "creating, ask again" }
