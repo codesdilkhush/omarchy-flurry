@@ -64,3 +64,9 @@ test("window light strings normalize and are capped", () => {
   assert.ok(/^[a-z0-9]+$/i.test(s.strings[0].id))
   assert.deepStrictEqual(S.normalize({}).strings, [])
 })
+
+test("snowballs are on unless switched off", () => {
+  assert.strictEqual(S.normalize({}).snowballs, true)
+  assert.strictEqual(S.normalize({ snowballs: false }).snowballs, false)
+  assert.strictEqual(S.normalize({ snowballs: "no" }).snowballs, true)
+})

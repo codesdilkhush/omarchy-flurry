@@ -136,6 +136,11 @@ BarWidget {
       }
       RowLayout {
         Layout.fillWidth: true
+        Text { Layout.fillWidth: true; text: "Snowballs"; color: Commons.Color.popups.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
+        ToggleSwitch { checked: root.service ? root.service.saved.snowballs : true; onToggled: root.service.setSnowballs(!checked) }
+      }
+      RowLayout {
+        Layout.fillWidth: true
         Text { Layout.fillWidth: true; text: "Halve on battery"; color: Commons.Color.popups.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
         ToggleSwitch { checked: root.service ? root.service.saved.batterySaver : true; onToggled: root.service.setBatterySaver(!checked) }
       }
