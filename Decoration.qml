@@ -1,5 +1,6 @@
 import QtQuick
 import "lib/draw.js" as Draw
+import "lib/sim.js" as Sim
 
 // A tree, snowman, gift or note on the desktop. It stands where its saved
 // place says, rides its window when it has one, and can be dragged, sent to
@@ -25,6 +26,29 @@ Item {
   x: dragging ? dragX : (feet ? feet.x - width / 2 : 0)
   y: dragging ? dragY : (feet ? feet.y - height + (kind === "tree" ? 2 : 1) : 0)
   visible: dragging || feet !== null
+
+  // Something standing on a window rocks when the window is dragged: the
+  // window's acceleration tips it back, a damped spring rights it. It is
+  // planted (snowmen are frozen to their spot), so it never falls off.
+  readonly property string riding: feet && feet.surface ? feet.surface : ""
+  property real tilt: 0
+  property real tiltSpeed: 0
+  transformOrigin: Item.Bottom
+  rotation: tilt
+  FrameAnimation {
+    running: root.visible && !root.dragging && root.riding !== "" && root.scene
+             && (root.scene.windowsMoving || Math.abs(root.tilt) > 0.05 || Math.abs(root.tiltSpeed) > 0.05)
+    onTriggered: {
+      var dt = Math.min(frameTime, 0.05)
+      var m = root.scene.world ? Sim.surfaceMotion(root.scene.world, root.riding) : null
+      // Degrees of lean per px/s² of sideways acceleration, capped.
+      var push = m ? Math.max(-14, Math.min(14, -m.ax * 0.004)) : 0
+      var stiffness = 90, damping = 9
+      root.tiltSpeed += ((push - root.tilt) * stiffness - root.tiltSpeed * damping) * dt
+      root.tilt += root.tiltSpeed * dt
+      if (!root.scene.windowsMoving && Math.abs(root.tilt) < 0.05 && Math.abs(root.tiltSpeed) < 0.05) { root.tilt = 0; root.tiltSpeed = 0 }
+    }
+  }
 
   // A freshly planted tree grows; a fresh snowman is rolled ball by ball.
   property real growth: 1
