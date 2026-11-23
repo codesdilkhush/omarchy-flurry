@@ -69,24 +69,49 @@ Item {
 
   NumberAnimation { id: grow; target: root; property: "growth"; from: 0; to: 1; duration: root.kind === "tree" ? 2400 : 1300; easing.type: Easing.OutCubic }
   onGrowthChanged: canvas.requestPaint()
-  onItemChanged: canvas.requestPaint()
+  onItemChanged: { canvas.requestPaint(); lights.requestPaint() }
 
-  // Tree lights twinkle.
-  readonly property bool twinkles: kind === "tree" && item && item.ornaments.some(function(o) { return o.kind === "light" })
-  Timer { interval: 180; repeat: true; running: root.twinkles && root.visible; onTriggered: canvas.requestPaint() }
+  // The tree paints in two layers: what holds still is repainted only when
+  // it changes; the lights, their glow and the star's halo run at 30 fps.
+  // Both canvases reach past the item so glow is never cut off.
+  readonly property real pad: 40 * size
+  readonly property bool glows: kind === "tree" && item && growth >= 1
+                                && (item.star || item.ornaments.some(function(o) { return o.kind === "light" }))
+  onGlowsChanged: lights.requestPaint()
+  Timer { interval: 33; repeat: true; running: root.glows && root.visible; onTriggered: lights.requestPaint() }
 
   Canvas {
     id: canvas
-    anchors.fill: parent
+    x: -root.pad; y: -root.pad
+    width: root.width + root.pad * 2; height: root.height + root.pad
     renderTarget: Canvas.FramebufferObject
     onPaint: {
       var ctx = getContext("2d")
       ctx.reset()
+      ctx.clearRect(0, 0, width, height)
       if (!root.item) return
-      if (root.kind === "tree") Draw.tree(ctx, width, height, { growth: root.growth, star: root.item.star, ornaments: root.item.ornaments }, Date.now() / 1000)
-      else if (root.kind === "snowman") Draw.snowman(ctx, width, height, { built: root.growth, scarf: root.item.scarf })
-      else if (root.item.kind === "note") Draw.letter(ctx, width, height)
-      else Draw.gift(ctx, width, height, root.item.color)
+      ctx.translate(root.pad, root.pad)
+      var w = root.width, h = root.height
+      if (root.kind === "tree") Draw.tree(ctx, w, h, { growth: root.growth, star: root.item.star, ornaments: root.item.ornaments, seed: root.item.id }, 0)
+      else if (root.kind === "snowman") Draw.snowman(ctx, w, h, { built: root.growth, scarf: root.item.scarf })
+      else if (root.item.kind === "note") Draw.letter(ctx, w, h)
+      else Draw.gift(ctx, w, h, root.item.color)
+    }
+  }
+
+  Canvas {
+    id: lights
+    visible: root.kind === "tree"
+    x: -root.pad; y: -root.pad
+    width: root.width + root.pad * 2; height: root.height + root.pad
+    renderTarget: Canvas.FramebufferObject
+    onPaint: {
+      var ctx = getContext("2d")
+      ctx.reset()
+      ctx.clearRect(0, 0, width, height)
+      if (!root.item || !root.glows) return
+      ctx.translate(root.pad, root.pad)
+      Draw.treeLights(ctx, root.width, root.height, { growth: root.growth, star: root.item.star, ornaments: root.item.ornaments }, Date.now() / 1000)
     }
   }
 
