@@ -14,12 +14,37 @@ Item {
 
   required property var simulation
 
-  readonly property bool active: scene.simulation !== null && scene.visible
+  // Whether the host surface is actually mapped. An Item's own `visible` stays
+  // true when its window is hidden, so the overlay passes the window state in
+  // here; without it the physics and four full-screen canvases kept running
+  // at 30 Hz while snowfall was switched off or paused.
+  property bool running: true
+
+  readonly property bool active: scene.simulation !== null && scene.running && scene.visible
+
+  // Mirrors `simulation.paused` (fullscreen pause), polled each tick for the
+  // same reason as everything else here. Hides the flakes so a frozen frame of
+  // snow is never left hanging in the air.
+  property bool simPaused: false
+
   property real _lastTick: 0
+
+  // Paint counters, exposed so tests (and diagnostics) can prove that idle
+  // layers really stay idle.
+  readonly property int flakePaints: flakes.paintCount
+  readonly property int trackPaints: tracks.paintCount
+  readonly property int plowPaints: plowLayer.paintCount
 
   // One frame notification for sibling tools (the snowman builder mirrors the
   // rolling ball's plain-JS state here). No extra timer is introduced.
   signal frame()
+
+  function repaintAll() {
+    banks.invalidate()
+    flakes.requestPaint()
+    tracks.requestPaint()
+    plowLayer.requestPaint()
+  }
 
   SnowBankRenderer {
     id: banks
@@ -39,6 +64,7 @@ Item {
     id: flakes
     anchors.fill: parent
     simulation: scene.simulation
+    visible: !scene.simPaused
   }
 
   // The plow is another pure-JS subsystem; this canvas only reads its state.
@@ -47,6 +73,7 @@ Item {
     id: plowLayer
     anchors.fill: parent
     simulation: scene.simulation
+    visible: !scene.simPaused
   }
 
   Timer {
@@ -60,17 +87,20 @@ Item {
     onTriggered: {
       var sim = scene.simulation
       if (!sim) return
-      tick.interval = sim.quality === "high" ? 16 : 33
+      tick.interval = Simulation.frameIntervalFor(sim.quality)
       var stamp = Simulation.now()
       var elapsed = scene._lastTick > 0 ? (stamp - scene._lastTick) / 1000 : 1 / 60
       scene._lastTick = stamp
       // `paused` is read here, per tick, for the same reason. A paused
       // simulation costs one timer wake-up and no painting.
+      scene.simPaused = sim.paused === true
       if (sim.paused) return
       Simulation.update(sim, elapsed)
       flakes.requestPaint()
-      tracks.requestPaint()
-      plowLayer.requestPaint()
+      // Tracks and the vehicle are idle most of the time: skip their paints
+      // (a full-screen texture upload each) unless something is on screen.
+      if (tracks.wantsPaint()) tracks.requestPaint()
+      if (plowLayer.wantsPaint()) plowLayer.requestPaint()
       banks.sync()
       // Notify after the physics step so tools mirror the *current* roll
       // position, not last frame's.
@@ -78,11 +108,16 @@ Item {
     }
   }
 
+  // Coming back from a hidden or paused state must not replay the gap as one
+  // huge physics step, and canvases may have lost their textures meanwhile.
+  onActiveChanged: {
+    scene._lastTick = 0
+    if (scene.active) scene.repaintAll()
+  }
+
   onSimulationChanged: {
     scene._lastTick = 0
-    banks.invalidate()
-    flakes.requestPaint()
-    tracks.requestPaint()
-    plowLayer.requestPaint()
+    scene.simPaused = false
+    scene.repaintAll()
   }
 }

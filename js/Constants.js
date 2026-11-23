@@ -6,7 +6,7 @@
 // invents its own ceiling.
 
 // Identity.
-var SERVICE_VERSION = "1.1.1";
+var SERVICE_VERSION = "1.2.0";
 var SETTINGS_SCHEMA_VERSION = 1;
 
 // Simulation.
@@ -105,15 +105,23 @@ var ADAPTIVE_CHECK_MS = 2000;
 var POLL_FAST_MS = 100;
 var POLL_IDLE_MS = 500;
 var MAX_TRACKED_WINDOWS = 64;
+// Hyprland raw events that mean "geometry is about to change, poll fast".
+// Matched after stripping a trailing "v2"/"v3" (e.g. openwindow, movewindowv2).
+var FAST_POLL_EVENTS = [
+  "openwindow", "closewindow", "movewindow", "resizewindow", "changefloatingmode",
+  "fullscreen", "workspace", "focusedmon", "activespecial", "pin", "minimized",
+  "monitoradded", "monitorremoved", "configreloaded", "moveworkspace"
+];
+var FAST_POLL_WINDOW_MS = 2000;
+
+// Transparency probe (see Compositor.js). If hyprctl does not answer in time
+// the result is "unknown" and the overlay is allowed.
+var COMPOSITOR_PROBE_TIMEOUT_MS = 1500;
 
 // Overlay.
 var OVERLAY_NAMESPACE = "snowglobe";
 var OVERLAY_MODES = ["passive", "disabled"];
 var LAYERS = ["behind", "above"];
-
-// Persistence.
-var STATE_VERSION = 1;
-var MAX_STATE_BYTES = 256 * 1024;
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
@@ -131,6 +139,9 @@ if (typeof module !== "undefined" && module.exports) {
     MAX_SNOWMEN: MAX_SNOWMEN,
     POLL_FAST_MS: POLL_FAST_MS,
     POLL_IDLE_MS: POLL_IDLE_MS,
+    FAST_POLL_EVENTS: FAST_POLL_EVENTS,
+    FAST_POLL_WINDOW_MS: FAST_POLL_WINDOW_MS,
+    COMPOSITOR_PROBE_TIMEOUT_MS: COMPOSITOR_PROBE_TIMEOUT_MS,
     MAX_TRACKED_WINDOWS: MAX_TRACKED_WINDOWS,
     WINDOW_MAX_DEPTH: WINDOW_MAX_DEPTH,
     GROUND_MAX_DEPTH: GROUND_MAX_DEPTH,
@@ -187,8 +198,6 @@ if (typeof module !== "undefined" && module.exports) {
     ADAPTIVE_CHECK_MS: ADAPTIVE_CHECK_MS,
     OVERLAY_NAMESPACE: OVERLAY_NAMESPACE,
     OVERLAY_MODES: OVERLAY_MODES,
-    LAYERS: LAYERS,
-    STATE_VERSION: STATE_VERSION,
-    MAX_STATE_BYTES: MAX_STATE_BYTES
+    LAYERS: LAYERS
   };
 }

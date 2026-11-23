@@ -15,6 +15,8 @@ BarWidget {
   readonly property var service: bar && bar.shell ? bar.shell.serviceFor("snowglobe") : null
   readonly property var cfg: Settings.normalize(root.settings)
   readonly property bool snowfallOn: cfg.enabled && cfg.overlay === "passive"
+  // The overlay is wanted but held back because it would render black.
+  readonly property bool blocked: root.service !== null && root.service.mode === "blocked"
 
   Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
@@ -25,8 +27,10 @@ BarWidget {
     if (root.service) root.service.rawSettings = root.settings ? root.settings : ({})
   }
 
-  // Shallow copy of the current settings with `patch` applied. Kept explicit
-  // so nothing from an older schema can leak back into shell.json.
+  // Shallow copy of the current settings with `patch` applied. Only known keys
+  // are taken from the patch, so nothing from an older schema (or a typo in an
+  // IPC payload) can leak back into shell.json; values are clamped later by
+  // Settings.toEntry().
   function merged(patch) {
     var out = ({})
     for (var k in root.cfg) out[k] = root.cfg[k]
@@ -35,13 +39,13 @@ BarWidget {
     return out
   }
 
+  // Assigning `settings` pushes to the service through onSettingsChanged.
   function write(next) {
     var entry = Settings.toEntry(next, root.moduleName)
     root.settings = entry
     var host = root.bar ? root.bar.shell : null
     if (host && typeof host.updateEntryInline === "function")
       host.updateEntryInline(root.moduleName, entry)
-    pushSettings()
   }
 
   function toggleSnowfall() {
@@ -59,7 +63,8 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "❄"
-    tooltipText: strings.t(root.snowfallOn ? "bar.tooltip.on" : "bar.tooltip.off")
+    tooltipText: strings.t(root.blocked ? "bar.tooltip.blocked"
+      : (root.snowfallOn ? "bar.tooltip.on" : "bar.tooltip.off"))
     onPressed: function(mouseButton) {
       if (mouseButton === Qt.RightButton) root.togglePanel()
       else root.toggleSnowfall()
@@ -118,7 +123,7 @@ BarWidget {
     }
 
     function status(): string {
-      return JSON.stringify({ on: root.snowfallOn, settings: root.cfg })
+      return JSON.stringify({ on: root.snowfallOn, blocked: root.blocked, settings: root.cfg })
     }
   }
 }

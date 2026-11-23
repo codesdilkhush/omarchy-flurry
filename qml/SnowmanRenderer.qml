@@ -64,9 +64,9 @@ Canvas {
     var index = decoration.ballIndex
     if (index < 0 || index >= balls.length) return
     var ball = balls[index]
-    var x = ball.x + decoration.dx * decoration.scale
-    var y = ball.y + decoration.dy * decoration.scale
     var scale = decoration.scale || 1
+    var x = ball.x + decoration.dx * scale
+    var y = ball.y + decoration.dy * scale
 
     if (decoration.type === "carrot") {
       var length = ball.r * 1.15 * scale

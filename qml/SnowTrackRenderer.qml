@@ -18,6 +18,19 @@ Canvas {
   // Default Canvas.Image backing: transparent, portable, no stale FBO texture.
   antialiasing: true
 
+  // Idle gating. A full-screen canvas costs a texture upload on every paint even
+  // when it is empty, so MonitorScene asks wantsPaint() before requesting one.
+  // `hasInk` stays true for exactly one extra pass after the last track fades,
+  // which is the pass that clears the canvas.
+  property bool hasInk: false
+  property int paintCount: 0
+
+  function wantsPaint() {
+    var sim = trackView.simulation
+    var live = sim && sim.tracks && sim.tracks.count > 0
+    return trackView.hasInk || live === true
+  }
+
   onAvailableChanged: if (available) trackView.requestPaint()
   onVisibleChanged: if (visible) trackView.requestPaint()
 
@@ -28,6 +41,8 @@ Canvas {
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, width, height)
     var sim = trackView.simulation
+    trackView.paintCount++
+    trackView.hasInk = false
     var tracks = sim && sim.tracks
     if (!tracks || !tracks.capacity) return
 
@@ -37,6 +52,7 @@ Canvas {
       var x = tracks.x[i]
       var r = tracks.radius[i]
       if (!(r > 0) || x < -r || x > width + r) continue
+      trackView.hasInk = true
       var y = tracks.y[i]
       // A fresh print is a soft hollow: dark in the middle, lighter along the
       // upper lip. As strength falls the hollow shallows and spreads, like snow

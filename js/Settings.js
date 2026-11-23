@@ -28,7 +28,11 @@ var DEFAULTS = {
   builderEnabled: true,
   adaptiveQuality: true,
   pauseOnFullscreen: true,
-  plowEnabled: true
+  plowEnabled: true,
+  // Refuse to map the full-screen overlay when the compositor is known to
+  // strip alpha from client buffers (see js/Compositor.js). Turning it off is
+  // an explicit "I know my setup renders transparency correctly".
+  transparencyGuard: true
 };
 
 var OVERLAY_MODES = ["passive", "disabled"];
@@ -76,7 +80,8 @@ function normalize(raw) {
     builderEnabled: bool(src.builderEnabled, DEFAULTS.builderEnabled),
     adaptiveQuality: bool(src.adaptiveQuality, DEFAULTS.adaptiveQuality),
     pauseOnFullscreen: bool(src.pauseOnFullscreen, DEFAULTS.pauseOnFullscreen),
-    plowEnabled: bool(src.plowEnabled, DEFAULTS.plowEnabled)
+    plowEnabled: bool(src.plowEnabled, DEFAULTS.plowEnabled),
+    transparencyGuard: bool(src.transparencyGuard, DEFAULTS.transparencyGuard)
   };
 }
 
@@ -100,14 +105,16 @@ function migrate(raw) {
 function toEntry(raw, id) {
   // The caller passes values that already went through normalize(); stamping
   // the revision marks them as deliberate so a stored "behind" survives.
+  //
+  // The key list is derived from DEFAULTS on purpose. This function used to
+  // copy a hand-written list of keys, which silently dropped `plowEnabled`:
+  // every write from the bar reset it to its default. Deriving the keys makes
+  // it impossible for a newly added setting to be forgotten here.
   var base = isPlainObject(raw) ? raw : {};
-  var entry = normalize({
-    enabled: base.enabled, overlay: base.overlay, layer: base.layer,
-    quality: base.quality, density: base.density, wind: base.wind,
-    accumulateOnWindows: base.accumulateOnWindows, builderEnabled: base.builderEnabled,
-    adaptiveQuality: base.adaptiveQuality, pauseOnFullscreen: base.pauseOnFullscreen,
-    settingsRevision: SETTINGS_REVISION
-  });
+  var picked = {};
+  for (var key in DEFAULTS) picked[key] = base[key];
+  picked.settingsRevision = SETTINGS_REVISION;
+  var entry = normalize(picked);
   entry.id = String(id || "");
   entry.settingsRevision = SETTINGS_REVISION;
   return entry;

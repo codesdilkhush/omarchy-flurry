@@ -6,10 +6,9 @@ builder and persistent decorations. It runs as a native plugin inside the
 long-running Omarchy shell — no second Quickshell process, no daemon, no Python,
 no browser rendering.
 
-> **Status:** 1.1.1 (transparent-overlay fix and video-matched snow look). Native Omarchy integration,
-> deterministic snowfall, window-aware accumulation, window movement physics,
-> an interactive snowman builder with persistence, adaptive quality and measured
-> performance. See `CHANGELOG.md`, `docs/PERFORMANCE.md` and `docs/MARKETPLACE.md`.
+> **Status:** 1.2.0 — stabilisation release with a black-screen guard, part of a
+> step-by-step modernisation towards the reference video. The target behaviour is specified in `docs/VIDEO_SPEC.md`
+> (with frames in `docs/reference/`); see `CHANGELOG.md` for what changed.
 
 ## Features (current)
 
@@ -83,12 +82,16 @@ add or keep the widget in your bar layout yourself:
 The shell hot-reloads plugin files on save. Force discovery with
 `omarchy-shell shell rescanPlugins` if needed.
 
+Useful options: `--dry-run` (show what would be copied), `--target DIR`.
+
 To remove:
 
 ```sh
-./scripts/uninstall.sh                 # plugin files only; data and config kept
-./scripts/uninstall.sh --remove-bar-entry --purge-state   # explicit full removal
+./scripts/uninstall.sh                 # plugin files only; settings and snowmen kept
+./scripts/uninstall.sh --purge-state   # also delete saved snowmen
 ```
+
+Remove the `snowglobe` bar entry from your `shell.json` by hand.
 
 ## Usage
 
@@ -112,6 +115,7 @@ omarchy-shell snowglobe probe         # raw Hyprland model diagnostics
 omarchy-shell snowglobe clear         # reset all snow fields
 omarchy-shell snowglobe pause
 omarchy-shell snowglobe resume
+omarchy-shell snowglobe recheckCompositor   # re-run the black-screen check
 omarchy-shell snowglobe.bar status
 omarchy-shell snowglobe.bar toggle
 omarchy-shell snowglobe.bar openPanel
@@ -126,16 +130,36 @@ omarchy-shell snowglobe.bar configure '{"quality":"high","wind":0.5}'
 | `enabled` | `true` | Master on/off for the overlay |
 | `overlay` | `passive` | `passive` (click-through surface) or `disabled` (no surface) |
 | `layer` | `above` | `above` windows (snow falls in front of them) or `behind` them |
-| `quality` | `balanced` | `low`, `balanced`, `high` (caps applied in later phases) |
-| `density` | `1` | Planned snowfall density multiplier (0.2–3) |
-| `wind` | `1` | Planned wind strength (−2–2) |
-| `accumulateOnWindows` | `true` | Planned window-top accumulation |
-| `builderEnabled` | `true` | Planned snowman builder availability |
+| `quality` | `balanced` | `low`, `balanced`, `high` (particle caps 250 / 600 / 1200) |
+| `density` | `1` | Snowfall density multiplier (0.2–3) |
+| `wind` | `1` | Wind strength (−2–2) |
+| `accumulateOnWindows` | `true` | Snow settles on window tops |
+| `builderEnabled` | `true` | Snowman builder available |
+| `adaptiveQuality` | `true` | Lower particle density automatically if frames run long |
+| `pauseOnFullscreen` | `true` | Stop the simulation on a monitor with a fullscreen window |
+| `plowEnabled` | `true` | A small snowplough clears the ground snow when it piles up |
+| `transparencyGuard` | `true` | Keep the overlay off when the compositor would render it black |
 
 Unknown or invalid values fall back to defaults; out-of-range numbers are
 clamped. Settings are written only through the shell's own `updateEntryInline`.
 
 ## Troubleshooting
+
+- **The screen goes black when snowfall is on.** Your compositor is not giving
+  the shell transparent (alpha) buffers, so the full-screen overlay is drawn
+  opaque. This is a Hyprland 0.57.0 default (`quirks:skip_non_kms_dmabuf_formats`)
+  that hits VMs and older Intel GPUs. Snowglobe detects it and keeps the overlay
+  off (bar tooltip and panel show **Blocked**). To fix it, update Hyprland to
+  0.57.1+ or add this to `~/.config/hypr/hyprland.lua`:
+
+  ```lua
+  hl.config({ quirks = { skip_non_kms_dmabuf_formats = false } })
+  ```
+
+  then restart Hyprland (log out and in) and run `omarchy restart shell`.
+  If the screen is already black, turn snowfall off blind from a terminal with
+  `omarchy-shell snowglobe.bar toggle` (or `omarchy-shell snowglobe pause`).
+  `omarchy-shell snowglobe status` shows the `compositor` probe result.
 
 - **Widget does not appear:** check `omarchy plugin list --json`, then
   `omarchy-shell shell rescanPlugins`.
@@ -144,19 +168,21 @@ clamped. Settings are written only through the shell's own `updateEntryInline`.
 - **`qmllint` not found:** set `QT_BIN_DIR` to the directory containing it
   (on this system `/usr/lib/qt6/bin`).
 
-## Compatibility and documentation
+## Documentation
 
-See `docs/COMPATIBILITY.md` for the verified environment matrix, `docs/RESEARCH.md`
-for verified APIs, `docs/ARCHITECTURE.md` for subsystem design, `docs/DECISIONS.md`
-for engineering decisions, `docs/RISKS.md` for the risk register,
-`docs/SECURITY.md`, `docs/PERFORMANCE.md` and `docs/TEST_PLAN.md`.
+- `docs/VIDEO_SPEC.md` — the behaviour this plugin is being built to match, with
+  a gap analysis and the planned steps.
+- `docs/reference/` — frames from the reference video.
+- `CHANGELOG.md` — release notes.
 
 ## Tests
 
 ```sh
-node --test tests/regression.test.js      # pure-JS logic, no desktop needed
+./scripts/validate.sh                      # manifest, versions, qmllint, all Node tests
+node --test tests/*.test.js                # pure-JS logic and source audits, no desktop
 python3 tests/qml/run_all.py               # real QML renderers/service/builder, headless
                                            # (needs: pip install PySide6-Essentials)
+python3 tests/qml/compare.py VIDEO.mp4 5.5 out.png   # plugin render next to a video frame
 ```
 
 

@@ -151,11 +151,41 @@ function surfaceLimits(spec, segW, segments, maxDepth, env) {
   return limits
 }
 
+// The surface whose snow body contains the point (x, y): the point is no higher
+// than the snow's top and no lower than the surface's base line.
+//
+// surfaceBelow() wants a surface top at or below the point, so it cannot see a
+// ball that was rolled through a deep pile: there the pointer sits well *under*
+// the top and the surface it came from counts as "above". Returning that ball's
+// snow with surfaceBelow() found nothing and silently destroyed all of it.
+// When several bodies contain the point, the one it is shallowest in wins, so a
+// window cap far above a ground pile never steals snow from the pile.
+function surfaceHolding(bankModule, surfaces, x, y) {
+  var best = null
+  var bestTop = 0
+  var bestDepth = Infinity
+  for (var i = 0; i < surfaces.length; i++) {
+    var surface = surfaces[i]
+    if (!surface || !surface.bank) continue
+    if (x < surface.x || x > surface.x + surface.width) continue
+    var top = bankModule.surfaceTopAt(surface.bank, x)
+    if (y < top || y > surface.bank.y + 1) continue
+    var depth = y - top
+    if (depth < bestDepth) {
+      bestDepth = depth
+      bestTop = top
+      best = surface
+    }
+  }
+  return best ? { surface: best, top: bestTop } : null
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     landingSurface: landingSurface,
     topAt: topAt,
     surfaceBelow: surfaceBelow,
+    surfaceHolding: surfaceHolding,
     windowRank: windowRank,
     surfaceLimits: surfaceLimits,
     HEADROOM_MARGIN: HEADROOM_MARGIN

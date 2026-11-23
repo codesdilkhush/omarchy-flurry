@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "snowglobe",
   "name": "Snowglobe",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "author": "Saman Shirdel",
   "license": "MIT",
   "description": "Interactive, window-aware snowfall that settles on window tops and the ground, with a persistent snowman builder",
@@ -30,7 +30,9 @@
       "accumulateOnWindows": true,
       "builderEnabled": true,
       "adaptiveQuality": true,
-      "pauseOnFullscreen": true
+      "pauseOnFullscreen": true,
+      "plowEnabled": true,
+      "transparencyGuard": true
     },
     "schema": [
       {
@@ -85,6 +87,13 @@
         "defaultValue": true
       },
       {
+        "key": "plowEnabled",
+        "type": "boolean",
+        "label": "Snowplough",
+        "description": "Let a small snowplough clear the ground snow when it piles up",
+        "defaultValue": true
+      },
+      {
         "key": "adaptiveQuality",
         "type": "boolean",
         "label": "Adaptive quality",
@@ -96,6 +105,13 @@
         "type": "boolean",
         "label": "Pause on fullscreen",
         "description": "Stop the simulation on monitors with a fullscreen window",
+        "defaultValue": true
+      },
+      {
+        "key": "transparencyGuard",
+        "type": "boolean",
+        "label": "Black-screen guard",
+        "description": "Do not draw the overlay when the compositor cannot give it a transparent surface (it would cover the desktop in black)",
         "defaultValue": true
       }
     ]

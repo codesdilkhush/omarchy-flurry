@@ -3,14 +3,25 @@ import Quickshell
 import Quickshell.Wayland
 import "../js/Constants.js" as Constants
 
-// One fullscreen surface per monitor.
+// One fullscreen, transparent, click-through layer surface per monitor.
 //
-// Phase 1 has nothing to draw yet: this surface exists to prove the contract
-// every later phase depends on — a mapped, transparent layer surface that takes
-// no input. `mask: Region {}` is empty, and Quickshell turns an empty mask into
-// Qt::WindowTransparentForInput plus an empty Wayland input region, so clicks
-// pass through to whatever is underneath. The mask is the only thing that ever
-// changes to capture input, and it is restored first when builder mode exits.
+// `mask: Region {}` is empty in passive mode, and Quickshell turns an empty
+// mask into Qt::WindowTransparentForInput plus an empty Wayland input region,
+// so clicks pass through to whatever is underneath. The mask is the only thing
+// that changes to capture input, and it is restored first when builder mode
+// exits.
+//
+// Black-screen safety. A full-screen surface is only harmless while it is
+// really transparent. Three things guard that:
+//  1. `surfaceFormat.opaque: false` and `color: "transparent"` are set before
+//     the window ever exists, so Quickshell never picks an opaque format.
+//  2. The window is not mapped until the component has completed (`ready`),
+//     so the first buffer the compositor sees is a fully configured,
+//     transparent one, never a default-coloured placeholder.
+//  3. The service only sets `passive`/`builderActive` when the compositor can
+//     actually give this client an alpha buffer (see js/Compositor.js). When
+//     it cannot, every pixel we would leave transparent comes out black, so the
+//     surface stays unmapped instead of hiding the desktop.
 PanelWindow {
   id: surface
 
@@ -29,25 +40,31 @@ PanelWindow {
   property var service: null
   property var snowmen: []
   property int snowmenRevision: 0
-  readonly property string monitorName: String(modelData.name || "")
+  readonly property string monitorName: String(modelData && modelData.name ? modelData.name : "")
+
+  // Set once the component (and therefore the surface format and colour) is
+  // fully initialised. Nothing is mapped before that.
+  property bool ready: false
+  readonly property bool wanted: surface.passive || surface.builderActive
 
   screen: modelData
-  visible: passive || builderActive
+  visible: surface.ready && surface.wanted
   color: "transparent"
   // Ask the compositor for an alpha-capable surface *at creation time*.
   // Quickshell otherwise infers the format from the window colour; when that
   // inference runs before `color: "transparent"` is applied, the whole
-  // fullscreen overlay comes up as an opaque black sheet over the desktop —
-  // the exact "black render" this fix targets. The format cannot be changed
-  // after the window exists, so it has to be requested here, up front.
+  // fullscreen overlay comes up as an opaque black sheet over the desktop.
+  // The format cannot be changed after the window exists.
   surfaceFormat {
     opaque: false
   }
   exclusionMode: ExclusionMode.Ignore
 
   WlrLayershell.namespace: Constants.OVERLAY_NAMESPACE
-  WlrLayershell.layer: builderActive ? WlrLayer.Overlay : (behind ? WlrLayer.Bottom : WlrLayer.Top)
-  WlrLayershell.keyboardFocus: builderActive ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+  WlrLayershell.layer: surface.builderActive ? WlrLayer.Overlay
+    : (surface.behind ? WlrLayer.Bottom : WlrLayer.Top)
+  WlrLayershell.keyboardFocus: surface.builderActive
+    ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
   anchors {
     top: true
@@ -69,6 +86,7 @@ PanelWindow {
     id: sceneLayer
     anchors.fill: parent
     simulation: surface.simulation
+    running: surface.visible
   }
 
   // Finished snowmen remain visible in passive mode; the renderer is always
@@ -95,7 +113,13 @@ PanelWindow {
     function onFrame() { builderTool.syncRoll() }
   }
 
-  Component.onCompleted: console.log("[snowglobe] surface up on " + modelData.name
-    + " layer=" + (behind ? "bottom" : "top"))
-  Component.onDestruction: console.log("[snowglobe] surface down on " + modelData.name)
+  onVisibleChanged: console.log("[snowglobe] surface " + (visible ? "mapped" : "unmapped")
+    + " on " + surface.monitorName + " layer=" + (surface.behind ? "bottom" : "top"))
+
+  Component.onCompleted: {
+    // Defer by one event-loop turn so every property above (colour, format,
+    // layer, mask) is applied before the window is created and mapped.
+    Qt.callLater(function() { surface.ready = true })
+  }
+  Component.onDestruction: console.log("[snowglobe] surface destroyed on " + surface.monitorName)
 }
