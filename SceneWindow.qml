@@ -152,6 +152,7 @@ PanelWindow {
                                   present: p.x >= sceneWin.screen.x && p.x < sceneWin.screen.x + sceneWin.width
                                         && p.y >= sceneWin.screen.y && p.y < sceneWin.screen.y + sceneWin.height,
                                   stillFor: p.stillFor } : null
+        Sim.setStrings(sceneWin.world, sceneWin.stringSpecs())
         Sim.step(sceneWin.world, dt, { pointer: local })
         canvas.requestPaint()
       }
@@ -176,6 +177,25 @@ PanelWindow {
   }
 
   // ------------------------------------------------------------ placement
+
+  // The light strings on this screen now: one on every window of each
+  // decorated class.
+  function stringSpecs() {
+    var list = service ? service.saved.strings : []
+    var out = []
+    for (var i = 0; i < list.length; i++)
+      for (var j = 0; j < windowRects.length; j++)
+        if (windowRects[j].cls === list[i].windowClass)
+          out.push({ id: list[i].id + ":" + windowRects[j].id, surface: windowRects[j].id, palette: list[i].palette })
+    return out
+  }
+
+  function classAt(x, y) {
+    var id = world ? Sim.surfaceAt(world, x, y) : null
+    if (!id) return ""
+    for (var i = 0; i < windowRects.length; i++) if (windowRects[i].id === id) return windowRects[i].cls
+    return ""
+  }
 
   function rectForClass(cls) {
     for (var i = 0; i < windowRects.length; i++) if (windowRects[i].cls === cls) return windowRects[i]
@@ -298,6 +318,14 @@ PanelWindow {
     onClicked: function(mouse) {
       sceneWin.menuFor = null
       if (mouse.button === Qt.RightButton) { sceneWin.tool = ""; return }
+      if (sceneWin.tool === "string" || sceneWin.tool === "erase") {
+        var cls = sceneWin.classAt(mouse.x, mouse.y)
+        if (!cls) return
+        if (sceneWin.tool === "erase") { sceneWin.service.removeWindowLights(cls); return }
+        var palette = sceneWin.service.decorateWindow(cls)
+        if (palette) sceneWin.say({ warm: "Warm white", multi: "Classic colours", cool: "Icy blue", candy: "Candy cane" }[palette] + ". Click again for other colours.", mouse.x, mouse.y - 30)
+        return
+      }
       if (sceneWin.tool === "tree") sceneWin.service.addTree(sceneWin.placeAt("tree", mouse.x, mouse.y))
       else if (sceneWin.tool === "snowman") sceneWin.service.addSnowman(sceneWin.placeAt("snowman", mouse.x, mouse.y))
     }

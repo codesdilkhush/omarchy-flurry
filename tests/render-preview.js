@@ -44,10 +44,11 @@ const c = createCanvas(1000, 300), ctx = c.getContext("2d")
 ctx.fillStyle = "#2a3550"; ctx.fillRect(0, 0, 1000, 300)
 function put(x, y, w, h, fn) { const t = createCanvas(w, h); fn(t.getContext("2d"), w, h); ctx.drawImage(t, x, y) }
 put(10, 120, 90, 160, (g, w, h) => D.snowman(g, w, h, {}))
-put(110, 60, 160, 230, (g, w, h) => D.tree(g, w, h, { growth: 1, star: true, ornaments: [
+const demoTree = { growth: 1, star: true, ornaments: [
   { kind: "bauble", u: -0.5, v: 0.6, color: "#e74c3c" }, { kind: "bauble", u: 0.4, v: 0.8, color: "#3498db" },
   { kind: "light", u: 0.1, v: 0.3, color: "#ffd84d" }, { kind: "light", u: -0.6, v: 0.9, color: "#ff6b6b" },
-  { kind: "candy", u: 0.5, v: 0.45 }] }, 1))
+  { kind: "candy", u: 0.5, v: 0.45 }] }
+put(110, 60, 160, 230, (g, w, h) => { D.tree(g, w, h, demoTree, 1); D.treeLights(g, w, h, demoTree, 1) })
 put(290, 30, 300, 110, (g, w, h) => D.sleigh(g, w, h, 0.3))
 put(600, 120, 130, 170, (g, w, h) => D.yeti(g, w, h, 0.2, 1, true, false))
 put(740, 200, 180, 80, (g, w, h) => D.train(g, w, h, 0.4, 1, "snowman"))
