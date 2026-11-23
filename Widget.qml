@@ -131,6 +131,11 @@ BarWidget {
       }
       RowLayout {
         Layout.fillWidth: true
+        Text { Layout.fillWidth: true; text: "Snow plow"; color: Commons.Color.popups.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
+        ToggleSwitch { checked: root.service ? root.service.saved.plow : true; onToggled: root.service.setPlow(!checked) }
+      }
+      RowLayout {
+        Layout.fillWidth: true
         Text { Layout.fillWidth: true; text: "Halve on battery"; color: Commons.Color.popups.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
         ToggleSwitch { checked: root.service ? root.service.saved.batterySaver : true; onToggled: root.service.setBatterySaver(!checked) }
       }

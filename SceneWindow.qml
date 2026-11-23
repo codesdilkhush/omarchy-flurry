@@ -62,7 +62,7 @@ PanelWindow {
   property int heapTick: 0
 
   Component.onCompleted: {
-    world = Sim.createWorld(width, height, { effect: service ? service.effect : "snow", intensity: service ? service.intensity : 1, groundInset: groundInset })
+    world = Sim.createWorld(width, height, { effect: service ? service.effect : "snow", intensity: service ? service.intensity : 1, groundInset: groundInset, plow: service ? service.plowOn : true })
     if (service) service.registerScene(screenName, sceneWin)
   }
   Component.onDestruction: if (service) service.unregisterScene(screenName, sceneWin)
@@ -75,6 +75,7 @@ PanelWindow {
     target: sceneWin.service
     function onEffectChanged() { if (sceneWin.world) Sim.setEffect(sceneWin.world, sceneWin.service.effect) }
     function onIntensityChanged() { if (sceneWin.world) Sim.setIntensity(sceneWin.world, sceneWin.service.intensity) }
+    function onPlowOnChanged() { if (sceneWin.world) Sim.setPlow(sceneWin.world, sceneWin.service.plowOn) }
   }
 
   onLiveChanged: {
@@ -320,6 +321,8 @@ PanelWindow {
   }
 
   // ------------------------------------------------------------ visitors
+
+  function callPlow() { return world ? Sim.callPlow(world) : false }
 
   function callSanta() {
     if (!santa.running) santa.start()
