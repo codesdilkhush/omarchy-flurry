@@ -428,6 +428,11 @@ Item {
     if (now - root.lastPointerMove < 400) return root.pointerPoll
     return root.idlePoll
   }
+  // When the compositor last rearranged windows itself (ms), and the gap
+  // between window polls right now (s): the scenes tell a drag from a jump
+  // with these and the pointer.
+  property real lastLayoutEvent: 0
+  readonly property real windowPollGap: windowPoll.interval / 1000
   Timer {
     id: windowPoll
     running: root.active
@@ -449,6 +454,15 @@ Item {
       case "openwindow":
         root.windowOpened(String(event.data).split(",")[0])
         break
+      }
+      switch (name) {
+      // Windows rearranged by the compositor, not dragged: a move of a window
+      // right after one of these is a jump, never a yank (see Sim.dragging).
+      // Focus changes are left out: clicking a window to drag it is one.
+      case "openwindow": case "closewindow": case "movewindowv2": case "changefloatingmode":
+      case "fullscreen": case "workspacev2": case "focusedmonv2": case "moveworkspacev2":
+      case "activespecial": case "minimized":
+        root.lastLayoutEvent = Date.now()
       }
       switch (name) {
       case "openwindow": case "closewindow": case "movewindowv2": case "changefloatingmode":

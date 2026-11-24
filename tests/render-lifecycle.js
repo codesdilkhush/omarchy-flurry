@@ -73,7 +73,7 @@ frames.push(shot(w, shown, "3. dropped: nothing left where it was"))
 // Drag 2: a brisk fling right and down, and a hard stop.
 const b0 = { x: shown.x, y: shown.y }
 run(0.32, t => ({ x: b0.x + 700 * ease(t / 0.45), y: b0.y + 160 * ease(t / 0.45) }))
-frames.push(shot(w, shown, "4. a fling (~2000 px/s): a little snow comes off the trailing edge"))
+frames.push(shot(w, shown, "4. a fling (~2000 px/s, ~13 g): a yank, the ledge falls where it was"))
 run(0.13, t => ({ x: b0.x + 700 * ease((t + 0.32) / 0.45), y: b0.y + 160 * ease((t + 0.32) / 0.45) }))
 // Drag 3 and 4: back and forth.
 for (let k = 0; k < 2; k++) {

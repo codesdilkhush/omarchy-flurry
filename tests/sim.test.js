@@ -64,21 +64,38 @@ test("a slow, steady drag keeps the snow on the window", () => {
   assert.ok(onWindow(w) > before * 0.85, `kept ${onWindow(w)} of ${before}`)
 })
 
-test("a fling slides snow off the trailing edge gradually, a little at a time, and it falls", () => {
+// Changed with the yank physics: this fling goes from a standstill to
+// 2000 px/s in one frame, about 120 g, far past what the snow's grip can
+// pass on, so the window is pulled out from under the snow (see
+// tests/yank.test.js). It used to ride along and shed gradually.
+test("a fling from a standstill is a yank: the ledge comes off at once and falls behind the window", () => {
+  const { w, r } = snowyWindow()
+  const before = onWindow(w)
+  const dt = 1 / 60
+  for (let t = 0; t < 0.9; t += dt) {
+    S.setSurfaces(w, [Object.assign({}, r, { x: r.x + Math.min(t, 0.35) / 0.35 * 700 })], w.time)
+    S.step(w, dt)
+  }
+  assert.ok(onWindow(w) < before * 0.05, `it came off: kept ${onWindow(w)} of ${before}`)
+  const left = w.particles.filter(p => p.kind === "clump" && p.x < w.surfaces.a.x)
+  assert.ok(left.length > 0, "snow came off behind the moving window")
+})
+
+// What the fling test used to check, at a pull the grip can hold: a brisk
+// drag that speeds up at about 1.2 g sheds gradually, a little at a time.
+test("a brisk drag within the snow's grip sheds a little at a time, never in a burst", () => {
   const { w, r } = snowyWindow()
   const before = onWindow(w)
   let most = 0
   const dt = 1 / 60
-  for (let t = 0; t < 0.9; t += dt) {
+  for (let t = 0; t < 1.2; t += dt) {
     const had = w.particles.length
-    S.setSurfaces(w, [Object.assign({}, r, { x: r.x + Math.min(t, 0.35) / 0.35 * 700 })], w.time)
+    const u = Math.min(t, 0.7)
+    S.setSurfaces(w, [Object.assign({}, r, { x: r.x + 960 * u * u + (t - u) * 1344 })], w.time)
     S.step(w, dt)
     most = Math.max(most, w.particles.length - had)
   }
-  assert.ok(onWindow(w) < before * 0.99, `some came off: kept ${onWindow(w)} of ${before}`)
   assert.ok(onWindow(w) > before * 0.6, `most of it rode along: kept ${onWindow(w)} of ${before}`)
-  const left = w.particles.filter(p => p.kind === "clump" && p.x < w.surfaces.a.x)
-  assert.ok(left.length > 0, "snow came off behind the moving window")
   assert.ok(most <= S.SNOW.shedBudget + 8, `no burst: at most ${most} new pieces in a frame`)
 })
 

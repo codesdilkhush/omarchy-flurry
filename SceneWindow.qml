@@ -166,6 +166,33 @@ PanelWindow {
   property var seenWindows: ({})
   property var lastRects: ({})
 
+  // What the simulation needs to tell a drag (the pointer moving with the
+  // window) from a jump (a layout change, a workspace switch, a keyboard
+  // move), in screen-local px.
+  function motionHint() {
+    if (!service) return null
+    var p = service.pointer
+    var now = Date.now()
+    return {
+      pointer: p.present ? { x: p.x - (screen ? screen.x : 0), y: p.y - (screen ? screen.y : 0), vx: p.vx, vy: p.vy,
+                             present: true, stillFor: p.stillFor + (p.at ? Math.max(0, now - p.at) / 1000 : 0) } : null,
+      poll: service.windowPollGap,
+      layoutAge: service.lastLayoutEvent ? (now - service.lastLayoutEvent) / 1000 : 1e9
+    }
+  }
+
+  // A window yanked out from under its snow: a snowman riding it stays
+  // where it was and drops to the ground there, like its snow.
+  function dropRiders(ev) {
+    var list = service.saved.snowmen
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i], pl = m.place
+      if (pl.screen !== screenName || pl.windowAddress !== ev.surface) continue
+      var fx = (ev.x + pl.windowFx * ev.w) / width
+      service.moveItem("snowman", m.id, { screen: screenName, fx: Math.max(0, Math.min(1, fx)), fy: 1, windowAddress: "", windowClass: "", windowFx: 0.5 })
+    }
+  }
+
   function syncWindows() {
     var rects = readWindows()
     var sig = rects.map(function(r) { return [r.id, r.x, r.y, r.w, r.h, r.floating ? 1 : 0, r.z].join(",") }).join(";")
@@ -175,7 +202,7 @@ PanelWindow {
     surfaceSig = sig
     windowRects = rects
     lastSurfaceChange = clock
-    Sim.setSurfaces(world, rects, clock, aliveIds())
+    Sim.setSurfaces(world, rects, clock, aliveIds(), motionHint())
     var seen = seenWindows, last = {}
     for (var i = 0; i < rects.length; i++) { seen[rects[i].id] = true; last[rects[i].id] = rects[i] }
     for (var k in lastRects) if (!last[k] && service.windowExists(k)) last[k] = lastRects[k]
@@ -210,7 +237,10 @@ PanelWindow {
         Sim.setStrings(sceneWin.world, sceneWin.stringSpecList)
         Sim.step(sceneWin.world, dt, { pointer: local })
         var events = Sim.takeEvents(sceneWin.world)
-        for (var e = 0; e < events.length; e++) sceneWin.service.sceneEvent(sceneWin, events[e])
+        for (var e = 0; e < events.length; e++) {
+          if (events[e].type === "yank") sceneWin.dropRiders(events[e])
+          else sceneWin.service.sceneEvent(sceneWin, events[e])
+        }
         canvas.requestPaint()
       }
       sceneWin.stepVisitors(dt)

@@ -1,6 +1,7 @@
 // Windows coming and going: everything that rides a window is keyed to its
 // address and lets go the moment it is gone from the screen, snow rides a
-// dragged window and leaves it only gradually, jumps are not jolts, and the
+// smoothly dragged window and leaves it only gradually (a yank is in
+// tests/yank.test.js), jumps are not jolts, and the
 // drawing never paints falling snow over a window's face.
 const test = require("node:test")
 const assert = require("node:assert")
@@ -88,7 +89,11 @@ test("a workspace switch: windows of the other workspace leave no ledge here, an
   assert.strictEqual(w.surfaces[other.id], undefined)
 })
 
-test("a jump (the first sample of a drag, a snap, a layout change) moves the snow with the window and sheds nothing", () => {
+// Retitled with the yank physics: a late sample with no pointer dragging
+// the window (a snap, a layout change, a keyboard move) is still a jump.
+// The first sample of a real drag is now told apart by the pointer and is
+// judged as a drag (tests/yank.test.js).
+test("a jump with no pointer behind it (a snap, a layout change) moves the snow with the window and sheds nothing", () => {
   const clumpsAfter = jump => {
     const w = scene(60)
     S.setEnv(w, { snowScale: 0 }); w.particles = []
