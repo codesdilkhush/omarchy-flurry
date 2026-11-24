@@ -35,18 +35,22 @@ Item {
   property real tiltSpeed: 0
   transformOrigin: Item.Bottom
   rotation: tilt
+  // A snow globe shake rocks everything, riding a window or not.
+  readonly property bool shaken: !!scene && scene.clock - scene.shakeAt < 2.5
   FrameAnimation {
-    running: root.visible && !root.dragging && root.riding !== "" && root.scene
-             && (root.scene.windowsMoving || Math.abs(root.tilt) > 0.05 || Math.abs(root.tiltSpeed) > 0.05)
+    running: root.visible && !root.dragging && root.scene
+             && ((root.riding !== "" && root.scene.windowsMoving) || root.shaken || Math.abs(root.tilt) > 0.05 || Math.abs(root.tiltSpeed) > 0.05)
     onTriggered: {
       var dt = Math.min(frameTime, 0.05)
-      var m = root.scene.world ? Sim.surfaceMotion(root.scene.world, root.riding) : null
+      var m = root.scene.world && root.riding !== "" ? Sim.surfaceMotion(root.scene.world, root.riding) : null
       // Degrees of lean per px/s² of sideways acceleration, capped.
       var push = m ? Math.max(-14, Math.min(14, -m.ax * 0.004)) : 0
+      var since = root.scene.clock - root.scene.shakeAt
+      if (since < 0.6) push += Math.sin(since * 34) * 9 * (1 - since / 0.6)
       var stiffness = 90, damping = 9
       root.tiltSpeed += ((push - root.tilt) * stiffness - root.tiltSpeed * damping) * dt
       root.tilt += root.tiltSpeed * dt
-      if (!root.scene.windowsMoving && Math.abs(root.tilt) < 0.05 && Math.abs(root.tiltSpeed) < 0.05) { root.tilt = 0; root.tiltSpeed = 0 }
+      if (!root.scene.windowsMoving && !root.shaken && Math.abs(root.tilt) < 0.05 && Math.abs(root.tiltSpeed) < 0.05) { root.tilt = 0; root.tiltSpeed = 0 }
     }
   }
 
@@ -70,6 +74,11 @@ Item {
   NumberAnimation { id: grow; target: root; property: "growth"; from: 0; to: 1; duration: root.kind === "tree" ? 2400 : 1300; easing.type: Easing.OutCubic }
   onGrowthChanged: canvas.requestPaint()
   onItemChanged: { canvas.requestPaint(); lights.requestPaint() }
+  // Theme colours reach the scarf.
+  Connections {
+    target: root.scene ? root.scene.service : null
+    function onThemeChanged() { canvas.requestPaint() }
+  }
 
   // The tree paints in two layers: what holds still is repainted only when
   // it changes; the lights, their glow and the star's halo run at 30 fps.
@@ -93,7 +102,7 @@ Item {
       ctx.translate(root.pad, root.pad)
       var w = root.width, h = root.height
       if (root.kind === "tree") Draw.tree(ctx, w, h, { growth: root.growth, star: root.item.star, ornaments: root.item.ornaments, seed: root.item.id }, 0)
-      else if (root.kind === "snowman") Draw.snowman(ctx, w, h, { built: root.growth, scarf: root.item.scarf })
+      else if (root.kind === "snowman") Draw.snowman(ctx, w, h, { built: root.growth, scarf: root.item.scarf, outfit: root.item.outfit, themeScarf: root.item.themeScarf })
       else if (root.item.kind === "note") Draw.letter(ctx, w, h)
       else Draw.gift(ctx, w, h, root.item.color)
     }
@@ -160,6 +169,8 @@ Item {
       return
     }
     if (tool === "erase") { scene.service.removeItem(kindKey(), item.id); return }
+    // Click a snowman to dress it, a piece at a time; right-click for its menu.
+    if (kind === "snowman") { scene.service.dressSnowman(item.id); return }
     if (kind === "gift") {
       scene.service.openGift(item.id)
       var who = item.from ? "From " + item.from + ": " : ""

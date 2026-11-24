@@ -4,7 +4,13 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.UPower
 import qs.Commons
+import qs.Commons as Commons
 import "lib/store.js" as Store
+import "lib/season.js" as Season
+import "lib/weather.js" as Weather
+import "lib/theme.js" as Theme
+import "lib/policy.js" as Policy
+import "lib/draw.js" as Draw
 
 // Flurry's headless core. Owns the saved state, the per-screen scenes, the
 // window and pointer feeds the simulation reads, the visitors' schedule, and
@@ -29,9 +35,16 @@ Item {
   readonly property bool snowballsOn: saved.snowballs
   readonly property var effects: Store.EFFECTS
 
-  // Half the particles, and a 30 fps cap, on battery.
-  readonly property bool onBattery: UPower.onBattery
-  readonly property real quality: saved.batterySaver && onBattery ? 0.5 : 1
+  // On battery (UPower, or /sys/class/power_supply when UPower has no
+  // answer) the effect is halved and capped at 30 fps; below 20% it drops
+  // further. Calm mode lowers it too. See Policy.gate.
+  property var sysPower: ({ known: false, onBattery: false, percent: 100 })
+  readonly property bool onBattery: UPower.onBattery || (sysPower.known && sysPower.onBattery)
+  readonly property real batteryPercent: sysPower.known ? sysPower.percent : 100
+  readonly property var gate: Policy.gate({ onBattery: onBattery, percent: batteryPercent, batterySaver: saved.batterySaver,
+                                            calm: calmActive, surprises: saved.surprises, fireworks: saved.newYear })
+  readonly property real quality: gate.quality
+  readonly property int fpsCap: gate.fps
 
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/omarchy-flurry"
 
@@ -60,6 +73,22 @@ Item {
   function setPlow(on) { update(function(s) { s.plow = !!on }) }
   function setSnowballs(on) { update(function(s) { s.snowballs = !!on }) }
   function setBatterySaver(on) { update(function(s) { s.batterySaver = !!on }) }
+  // The newer switches, all by name (see Store.defaults for what each does).
+  readonly property var flagNames: ["shake", "windGusts", "writing", "dayCycle", "seasons", "newYear", "surprises",
+                                    "themeSync", "throwToFriends", "liveWeather"]
+  function setFlag(name, on) {
+    if (root.flagNames.indexOf(name) < 0) return false
+    update(function(s) { s[name] = !!on })
+    if (name === "liveWeather" && on) weatherSoon.restart()
+    return true
+  }
+  function toggleFlag(name) { setFlag(name, !root.saved[name]); return root.saved[name] ? "on" : "off" }
+  function setCalm(mode) {
+    if (Store.CALM_MODES.indexOf(String(mode)) < 0) return false
+    update(function(s) { s.calm = String(mode) })
+    calmCheck.triggered()
+    return true
+  }
 
   Process {
     id: makeStateDir
@@ -126,7 +155,8 @@ Item {
       notify("That's a lot of snowmen", "Remove one to roll another.")
       return null
     }
-    var m = Store.normalizeSnowman(Object.assign({ place: place }, extra || {}))
+    // A new snowman is bare; click it to dress it.
+    var m = Store.normalizeSnowman(Object.assign({ place: place, outfit: { nose: false, scarf: false, hat: false } }, extra || {}))
     update(function(s) { s.snowmen.push(m) })
     return m.id
   }
@@ -164,8 +194,9 @@ Item {
         if (ornament.kind === "star") { t.star = true; done = true; continue }
         if (t.ornaments.length >= Store.MAX_ORNAMENTS) continue
         var palette = ornament.kind === "light" ? Store.LIGHT_COLORS : Store.BAUBLE_COLORS
-        t.ornaments.push({ kind: ornament.kind, u: ornament.u, v: ornament.v,
-                           color: palette[t.ornaments.length % palette.length] })
+        var o = { kind: ornament.kind, u: ornament.u, v: ornament.v, color: palette[t.ornaments.length % palette.length] }
+        if (ornament.kind === "bauble" && s.ornamentStyle !== "glass") o.style = s.ornamentStyle
+        t.ornaments.push(o)
         done = true
       }
     })
@@ -175,6 +206,37 @@ Item {
     update(function(s) { for (var i = 0; i < s.gifts.length; i++) if (s.gifts[i].id === id) s.gifts[i].opened = true })
   }
   function clearDecorations() { update(function(s) { s.trees = []; s.snowmen = []; s.gifts = []; s.strings = [] }) }
+
+  // A click puts the next piece of the outfit on a snowman (nose, scarf,
+  // hat), and once it is all on, takes it off again. The scarf takes the
+  // theme's colour while theme colours are on.
+  function dressSnowman(id) {
+    var next = null
+    update(function(s) {
+      for (var i = 0; i < s.snowmen.length; i++) {
+        if (s.snowmen[i].id !== id) continue
+        var before = Store.normalizeOutfit(s.snowmen[i].outfit)
+        next = s.snowmen[i].outfit = Store.dressNext(before)
+        if (next.scarf && !before.scarf) s.snowmen[i].themeScarf = !!s.themeSync
+      }
+    })
+    return next
+  }
+
+  // Bauble finishes: the golden snowflake unlocks them, the menu picks one.
+  function unlockOrnament() {
+    var got = ""
+    update(function(s) { got = Store.unlockNext(s) })
+    if (got) notify("You caught the golden snowflake", "A new bauble finish: " + Store.ORNAMENT_STYLE_NAMES[got] + ". Your next baubles use it.")
+    else notify("You caught the golden snowflake", "You have every bauble finish already. Lucky you.")
+    return got
+  }
+  function setOrnamentStyle(style) {
+    if (root.saved.ornamentStyles.indexOf(String(style)) < 0) return false
+    update(function(s) { s.ornamentStyle = String(style) })
+    return true
+  }
+  function nextOrnamentStyle() { setOrnamentStyle(Store.nextStyle(root.saved)); return root.saved.ornamentStyle }
 
   // Light strings belong to a window class, so they come back with the app.
   function lightsFor(cls) {
@@ -189,7 +251,7 @@ Item {
       notify("That's a lot of lights", "Take a string down to hang another.")
       return ""
     }
-    var palette = "warm"
+    var palette = root.saved.themeSync ? "theme" : "warm"
     update(function(s) {
       for (var i = 0; i < s.strings.length; i++) {
         if (s.strings[i].windowClass !== cls) continue
@@ -453,7 +515,7 @@ Item {
     var item = find(kind, id)
     if (!item) return false
     var payload = kind === "tree" ? { star: item.star, size: item.size, ornaments: item.ornaments }
-                                  : { scarf: item.scarf, size: item.size }
+                                  : { scarf: item.themeScarf && root.theme ? root.theme.scarf : item.scarf, size: item.size, outfit: item.outfit }
     var scene = sceneForPlace(item.place)
     var go = function() {
       root.post(friend.id, Store.giftMessage(root.saved.identity, kind, payload))
@@ -516,6 +578,7 @@ Item {
   }
 
   function receive(gift) {
+    if (gift.kind === "snowball") { catchSnowball(gift); return }
     var scene = focusedScene()
     var who = gift.from + (gift.known ? "" : " (not in your friends)")
     if (scene) scene.trainDeliver(gift)
@@ -527,7 +590,7 @@ Item {
   // Called by the scene once the train has stopped, with where it stopped.
   function deliverAt(gift, place) {
     if (gift.kind === "snowman" && root.saved.snowmen.length < Store.MAX_SNOWMEN) {
-      addSnowman(place, { scarf: gift.art.scarf, size: gift.art.size, from: gift.from })
+      addSnowman(place, { scarf: gift.art.scarf, size: gift.art.size, from: gift.from, outfit: gift.art.outfit || { nose: true, scarf: true, hat: true } })
     } else if (gift.kind === "tree" && root.saved.trees.length < Store.MAX_TREES) {
       var t = Store.normalizeTree({ place: place, star: gift.art.star, size: gift.art.size,
                                     ornaments: gift.art.ornaments, planted: 0 })
@@ -535,6 +598,314 @@ Item {
     } else {
       addGift(place, { kind: gift.kind === "note" ? "note" : "gift", from: gift.from, note: gift.note })
     }
+  }
+
+  // ---------------------------------------------------------- the environment
+  //
+  // Season, time of day and (optionally) the real weather, folded into one
+  // object every scene's simulation reads. Recomputed every half minute and
+  // whenever an input changes.
+
+  property var env: Season.neutral()
+  property string seasonOverride: ""      // "", "winter" or "spring": a preview
+  property real springPreview: 0
+  readonly property var weatherNow: saved.liveWeather ? Weather.usable(saved.weatherCache, envTick.stamp) : null
+
+  function computeEnv() {
+    root.env = Season.environment(new Date(), {
+      weather: root.weatherNow, seasons: root.saved.seasons, dayCycle: root.saved.dayCycle,
+      override: root.seasonOverride, springAt: root.springPreview, calm: root.calmActive
+    })
+  }
+  Timer {
+    id: envTick
+    property real stamp: Date.now()
+    interval: 30000
+    repeat: true
+    running: root.active
+    triggeredOnStart: true
+    onTriggered: { stamp = Date.now(); root.computeEnv() }
+  }
+  onWeatherNowChanged: computeEnv()
+  onCalmActiveChanged: computeEnv()
+  onSavedChanged: if (root.loaded) root.computeEnv()
+
+  // `flurry season spring` previews the thaw: the snow eases off and melts,
+  // sprouts come up and blossom falls, over about a minute. `winter` holds
+  // deep winter; `auto` goes back to the calendar.
+  function previewSeason(name) {
+    name = String(name || "auto")
+    if (name === "auto" || name === "off") { root.seasonOverride = ""; springRamp.stop(); computeEnv(); return "auto (" + root.env.season + ")" }
+    if (name !== "spring" && name !== "winter") return "season: auto, winter or spring"
+    root.seasonOverride = name
+    root.springPreview = 0
+    if (name === "spring") springRamp.restart()
+    computeEnv()
+    if (!root.saved.enabled) setEnabled(true)
+    return name
+  }
+  Timer {
+    id: springRamp
+    interval: 1000
+    repeat: true
+    onTriggered: {
+      root.springPreview = Math.min(1, root.springPreview + 1 / 60)
+      root.computeEnv()
+      if (root.springPreview >= 1) stop()
+    }
+  }
+
+  // ---------------------------------------------------------- live weather
+  //
+  // Open-Meteo, every 15 minutes while Live weather is on, for the city set
+  // (looked up once through its geocoding API) or the coordinates given.
+  // The last good reading is saved, so the scene keeps it through a restart
+  // or a spell offline; after three hours without one the scene goes back to
+  // the calendar's mild winter day.
+
+  property int weatherFailures: 0
+  property string missingCity: ""          // a city the geocoder didn't know: don't ask again
+  readonly property bool weatherWanted: root.active && root.saved.liveWeather
+  readonly property bool weatherPlaced: root.saved.weatherLat !== null && root.saved.weatherLon !== null
+
+  function setWeatherCity(name) {
+    var city = String(name || "").trim()
+    update(function(s) { s.weatherCity = city; s.weatherLat = null; s.weatherLon = null; s.weatherPlace = ""; s.liveWeather = city !== "" || s.liveWeather })
+    weatherSoon.restart()
+  }
+  function setWeatherLocation(lat, lon) {
+    if (!Weather.validLat(lat) || !Weather.validLon(lon)) return false
+    update(function(s) { s.weatherLat = Number(lat); s.weatherLon = Number(lon); s.weatherCity = ""; s.weatherPlace = Number(lat).toFixed(2) + ", " + Number(lon).toFixed(2); s.liveWeather = true })
+    weatherSoon.restart()
+    return true
+  }
+  function weatherCommand(mode) {
+    mode = String(mode || "")
+    if (mode === "on" || mode === "off") { setFlag("liveWeather", mode === "on"); return mode }
+    if (mode === "now" || mode === "refresh") { weatherSoon.restart(); return "fetching" }
+    var c = root.saved.weatherCache
+    return JSON.stringify({ live: root.saved.liveWeather, place: root.saved.weatherPlace || root.saved.weatherCity,
+                            reading: c ? c.current : null, at: c ? new Date(c.at).toISOString() : null, mapped: root.weatherNow })
+  }
+  function fetchWeather() {
+    if (!root.weatherWanted || geoProc.running || weatherProc.running) return
+    if (!root.weatherPlaced) {
+      if (!root.saved.weatherCity || root.saved.weatherCity === root.missingCity) return
+      geoProc.command = ["curl", "-sS", "-f", "-m", "15", Weather.geocodeUrl(root.saved.weatherCity)]
+      geoProc.running = true
+      return
+    }
+    weatherProc.command = ["curl", "-sS", "-f", "-m", "15", Weather.forecastUrl(root.saved.weatherLat, root.saved.weatherLon)]
+    weatherProc.running = true
+  }
+  function weatherFailed() {
+    root.weatherFailures++
+    weatherTimer.interval = Weather.retryDelay(root.weatherFailures)
+    weatherTimer.restart()
+  }
+  Process {
+    id: geoProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var g = Weather.parseGeocode(String(text || ""))
+        if (!g) {
+          if (String(text || "").indexOf("results") < 0 && String(text || "").length > 0) return root.weatherFailed()
+          root.missingCity = root.saved.weatherCity
+          root.notify("Couldn't find " + root.saved.weatherCity, "Try a bigger city nearby, or `flurry location <lat> <lon>`.")
+          return
+        }
+        root.update(function(s) { s.weatherLat = g.lat; s.weatherLon = g.lon; s.weatherPlace = g.name })
+        weatherSoon.restart()
+      }
+    }
+    onExited: function(code) { if (code !== 0) root.weatherFailed() }
+  }
+  Process {
+    id: weatherProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var cur = Weather.parseCurrent(String(text || ""))
+        if (!cur) return
+        root.weatherFailures = 0
+        weatherTimer.interval = Weather.REFRESH_MS
+        root.update(function(s) { s.weatherCache = { at: Date.now(), current: cur } })
+      }
+    }
+    onExited: function(code) { if (code !== 0) root.weatherFailed() }
+  }
+  Timer {
+    id: weatherTimer
+    interval: Weather.REFRESH_MS
+    repeat: true
+    running: root.weatherWanted
+    onTriggered: root.fetchWeather()
+  }
+  Timer { id: weatherSoon; interval: 1500; onTriggered: root.fetchWeather() }
+  onWeatherWantedChanged: if (weatherWanted) weatherSoon.restart()
+
+  // ---------------------------------------------------------- theme colours
+  //
+  // The Omarchy theme's palette, read from its colors.toml. Omarchy pushes a
+  // theme switch to the shell, which changes qs.Commons.Color, so a change
+  // there re-reads the file; a slow timer catches anything else.
+
+  property var theme: null
+  readonly property string themePath: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+  function applyTheme(text) {
+    var next = root.saved.themeSync ? Theme.derive(text === null ? Theme.fallback() : Theme.parse(text)) : null
+    if (Theme.same(next, root.theme) || (!next && !root.theme)) return
+    Draw.setTheme(next)
+    root.theme = next
+  }
+  FileView {
+    id: themeFile
+    path: root.themePath
+    printErrors: false
+    watchChanges: true
+    onFileChanged: reload()
+    onLoaded: root.applyTheme(text())
+    onLoadFailed: root.applyTheme(null)
+  }
+  Connections {
+    target: Commons.Color
+    function onAccentChanged() { themeFile.reload() }
+    function onBackgroundChanged() { themeFile.reload() }
+  }
+  Timer { interval: 60000; repeat: true; running: root.active && root.saved.themeSync; onTriggered: themeFile.reload() }
+  readonly property bool themeOn: saved.themeSync
+  onThemeOnChanged: themeFile.reload()
+
+  // ---------------------------------------------------------- power
+  //
+  // /sys/class/power_supply, read once a minute: a fallback for machines
+  // where UPower isn't answering, and the battery percentage.
+  Process {
+    id: powerProc
+    command: ["sh", "-c", "for d in /sys/class/power_supply/*; do [ -e \"$d/type\" ] || continue; "
+                        + "printf '%s|%s|%s|%s|%s\\n' \"${d##*/}\" \"$(cat $d/type 2>/dev/null)\" \"$(cat $d/status 2>/dev/null)\" "
+                        + "\"$(cat $d/capacity 2>/dev/null)\" \"$(cat $d/online 2>/dev/null)\"; done"]
+    stdout: StdioCollector { onStreamFinished: root.sysPower = Policy.parsePowerSupply(String(text || "")) }
+  }
+  Timer { interval: 60000; repeat: true; running: root.loaded; triggeredOnStart: true; onTriggered: powerProc.running = true }
+
+  // ---------------------------------------------------------- calm
+  property bool calmActive: false
+  Timer {
+    id: calmCheck
+    interval: 30000
+    repeat: true
+    running: root.loaded
+    triggeredOnStart: true
+    onTriggered: root.calmActive = Policy.calmNow(root.saved.calm, root.saved.workHours, new Date())
+  }
+
+  // ---------------------------------------------------------- the snow globe
+  function shakeAll() {
+    if (!root.saved.shake || !root.active) return false
+    var any = false
+    for (var k in root.scenes) if (root.scenes[k].shake()) any = true
+    return any
+  }
+
+  // ---------------------------------------------------------- New Year
+  //
+  // Asleep until a little before midnight on December 31st; then ten
+  // seconds of countdown, and fireworks on every screen.
+
+  property string newYearPhase: ""
+  property int lastTick: -1
+  function previewFireworks(seconds) {
+    if (!root.active) return false
+    for (var k in root.scenes) root.scenes[k].startFireworks(seconds)
+    return true
+  }
+  Timer {
+    id: newYearTimer
+    running: root.active && root.saved.newYear
+    repeat: true
+    interval: 1000
+    triggeredOnStart: true
+    onTriggered: {
+      var now = new Date()
+      var ny = Season.newYear(now)
+      if (ny.phase === "countdown" && root.gate.fireworks) {
+        var n = Math.ceil(ny.seconds)
+        if (n !== root.lastTick) { root.lastTick = n; for (var k in root.scenes) root.scenes[k].countdownTick(n) }
+      } else if (ny.phase === "show" && root.newYearPhase !== "show" && root.gate.fireworks) {
+        root.previewFireworks(Season.NEW_YEAR.show - ny.seconds)
+      }
+      root.newYearPhase = ny.phase
+      interval = Season.msUntilNewYearWatch(now)
+    }
+  }
+
+  // ---------------------------------------------------------- surprises
+  //
+  // Now and then a bird, a cat or (rarely) the golden snowflake, chosen in
+  // Policy so the same one rarely comes twice running. Only while it snows,
+  // never in calm mode, fullscreen, decorate mode or on a low battery.
+
+  property var surpriseHistory: []
+  Timer {
+    id: surpriseTimer
+    running: root.active && root.gate.surprises && root.saved.effect === "snow" && root.decorating === ""
+    interval: Policy.planSurprise([], Date.now(), {}).delay
+    onTriggered: {
+      root.surpriseNow("")
+      interval = Policy.planSurprise(root.surpriseHistory, Date.now(), {}).delay
+      restart()
+    }
+  }
+  function surpriseNow(kind) {
+    var scene = focusedScene()
+    if (!scene || !root.active) return "no screen"
+    var ctx = scene.surpriseContext()
+    kind = String(kind || "") || Policy.pickSurprise(root.surpriseHistory, Date.now(), ctx)
+    if (!kind) return "nothing can come now"
+    if (!scene.surprise(kind)) return "no room for a " + kind + " now"
+    root.surpriseHistory = Policy.remember(root.surpriseHistory, kind, Date.now())
+    return kind
+  }
+
+  // ---------------------------------------------------------- snowballs to friends
+  //
+  // A snowball thrown off the side of the screen goes to a friend (the one
+  // picked with `flurry throwto`, else the first) over the gift inbox, at
+  // most one every second and a half; theirs come in the same way.
+
+  readonly property var throwFriend: Store.throwTarget(saved)
+  readonly property bool throwOn: saved.throwToFriends && !!saved.identity && !!throwFriend
+  property real lastThrow: 0
+  property real lastCatch: 0
+  function setThrowTarget(name) {
+    var n = String(name || "").toLowerCase()
+    for (var i = 0; i < root.saved.friends.length; i++) {
+      var f = root.saved.friends[i]
+      if (f.name.toLowerCase() === n || f.id === name) {
+        update(function(s) { s.throwTo = f.id; s.throwToFriends = true })
+        return "snowballs go to " + f.name
+      }
+    }
+    return "no friend called " + name
+  }
+  function throwSnowball(ev) {
+    var friend = root.throwFriend
+    if (!root.throwOn || !friend || Date.now() - root.lastThrow < 1500) return false
+    root.lastThrow = Date.now()
+    root.post(friend.id, Store.giftMessage(root.saved.identity, "snowball", ev))
+    return true
+  }
+  function catchSnowball(gift) {
+    if (!root.active || root.saved.effect !== "snow" || Date.now() - root.lastCatch < 1500) return
+    root.lastCatch = Date.now()
+    var scene = focusedScene()
+    if (scene) scene.incomingSnowball(gift.art)
+  }
+
+  // What a scene's simulation reported this frame.
+  function sceneEvent(scene, ev) {
+    if (ev.type === "throw") throwSnowball(ev)
+    else if (ev.type === "golden") unlockOrnament()
   }
 
   // ---------------------------------------------------------- misc
@@ -549,7 +920,13 @@ Item {
       enabled: root.saved.enabled, effect: root.saved.effect, intensity: root.saved.intensity,
       quality: root.quality, trees: root.saved.trees.length, snowmen: root.saved.snowmen.length,
       gifts: root.saved.gifts.length, friends: root.saved.friends.length,
-      friendCode: root.friendCode, scene: scene ? scene.stats() : null
+      friendCode: root.friendCode, scene: scene ? scene.stats() : null,
+      season: root.env.season, spring: root.env.spring, tempC: root.env.tempC, liveWeather: root.saved.liveWeather,
+      weather: root.saved.weatherCache ? { place: root.saved.weatherPlace, at: new Date(root.saved.weatherCache.at).toISOString(),
+                                           current: root.saved.weatherCache.current } : null,
+      calm: root.calmActive, onBattery: root.onBattery, battery: root.batteryPercent, fps: root.fpsCap,
+      theme: root.theme ? root.theme.source : "off", ornamentStyle: root.saved.ornamentStyle,
+      ornamentStyles: root.saved.ornamentStyles, preview: root.seasonOverride
     })
   }
 
@@ -582,6 +959,20 @@ Item {
       return root.sendNote(match.id, text) ? "sent" : "not sent"
     }
     function status(): string { return root.status() }
+    function shake(): string { return root.shakeAll() ? "whoosh" : "off" }
+    function fireworks(seconds: string): string { return root.previewFireworks(Number(seconds) || 60) ? "bang" : "off" }
+    function season(name: string): string { return root.previewSeason(name) }
+    function weather(mode: string): string { return root.weatherCommand(mode) }
+    function city(name: string): string { root.setWeatherCity(name); return "looking up " + name }
+    function location(lat: string, lon: string): string { return root.setWeatherLocation(lat, lon) ? "ok" : "invalid coordinates" }
+    function calm(mode: string): string { return root.setCalm(mode) ? root.saved.calm : "calm: off, on or work" }
+    function surprise(kind: string): string { return root.surpriseNow(kind) }
+    function ornaments(style: string): string {
+      if (style === "" || style === "next") return root.nextOrnamentStyle()
+      return root.setOrnamentStyle(style) ? style : "locked (catch a golden snowflake): " + style
+    }
+    function throwTo(friend: string): string { return root.setThrowTarget(friend) }
+    function toggleFlag(name: string): string { return root.flagNames.indexOf(name) < 0 ? "unknown: " + name : root.toggleFlag(name) }
   }
 
   // ---------------------------------------------------------- scenes
