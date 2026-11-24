@@ -1,0 +1,519 @@
+// The snow globe shake, wind from windows, writing in the snow, icicles,
+// the night glaze, melting, spring, fireworks, the bird, the cat, the golden
+// snowflake, snowballs thrown to friends, and the state behind them.
+const test = require("node:test")
+const assert = require("node:assert")
+const load = require("./load")
+const S = load("lib/sim.js")
+const Store = load("lib/store.js")
+
+const dt = 1 / 60
+const sum = a => a.reduce((x, y) => x + y, 0)
+function run(w, secs, rects, input) {
+  for (let t = 0; t < secs - 1e-9; t += dt) {
+    if (rects) S.setSurfaces(w, rects, w.time)
+    S.step(w, dt, input ? input(t) : undefined)
+  }
+}
+// A window and the ground with settled snow, the sky switched off.
+function snowy(opts) {
+  const w = S.createWorld(1600, 1000, Object.assign({ effect: "snow", intensity: 2, plow: false }, opts || {}))
+  const r = { id: "a", x: 400, y: 400, w: 600, h: 300, floating: true, z: 0 }
+  run(w, 30, [r])
+  const g = w.surfaces.__ground
+  g.bins = g.bins.map((v, i) => 14 + 2 * Math.sin(i * 0.1))
+  S.setEnv(w, { snowScale: 0 })
+  w.particles = []
+  return { w, r }
+}
+const lying = w => Object.values(w.surfaces).reduce((t, s) => t + sum(s.bins) + s.edges[0].m + s.edges[1].m, 0)
+const inAir = w => w.particles.reduce((t, p) => t + (p.kind === "flake" && p.amount ? p.amount : 0) + (p.kind === "powder" ? p.amount : 0)
+                                      + (p.kind === "clump" ? p.amount : 0), 0)
+
+// ------------------------------------------------------------- shake
+
+test("shake lifts the lying snow into the air as flakes, without losing it", () => {
+  const { w, r } = snowy()
+  const before = lying(w)
+  const onWindow = sum(w.surfaces.a.bins)
+  const lifted = S.shake(w, 1)
+  assert.ok(lifted > before * 0.5, `lifted ${lifted} of ${before}`)
+  assert.ok(sum(w.surfaces.a.bins) < onWindow * 0.25, "the window is mostly bare")
+  assert.ok(sum(w.surfaces.__ground.bins) > 0, "the bottom of the drift stays")
+  const total = lying(w) + inAir(w)
+  assert.ok(Math.abs(total - before) / before < 0.02, `conserved: ${total} vs ${before}`)
+  // The surge carries it up first.
+  run(w, 0.3, [r])
+  const flakes = w.particles.filter(p => p.kind === "flake" && p.amount)
+  const risen = flakes.filter(p => p.vy < -50).length
+  assert.ok(risen > flakes.length * 0.5, `${risen} of ${flakes.length} rising`)
+  assert.ok(Math.min(...flakes.map(p => p.y)) < 600, "high above where it lay")
+})
+
+test("after a shake the snow swirls, then settles back on the window and the ground", () => {
+  const { w, r } = snowy()
+  const before = lying(w)
+  S.shake(w, 1)
+  run(w, 2, [r])
+  // Eddies: flakes moving sideways both ways at once.
+  const vx = w.particles.filter(p => p.kind === "flake").map(p => p.vx)
+  assert.ok(vx.some(v => v > 40) && vx.some(v => v < -40), "turning over")
+  run(w, 40, [r])
+  assert.strictEqual(w.shake, null, "the swirl has died down")
+  const back = lying(w)
+  assert.ok(back > before * 0.7, `settled again: ${back} of ${before}`)
+  assert.ok(sum(w.surfaces.a.bins) > 30, "some lands on the window again")
+})
+
+test("shake knocks snowballs and resting petals loose", () => {
+  const { w, r } = snowy()
+  const b = S.makeBall(w, 700, 400 - 20, Math.PI * 12 * 12, 0.8)
+  w.balls.push(b)
+  run(w, 0.5, [r])
+  S.shake(w, 1)
+  assert.ok(b.vy < -100, "the ball hops")
+})
+
+// ------------------------------------------------------------- wind from windows
+
+function gustScene(speed, gusts) {
+  const w = S.createWorld(1600, 1000, { effect: "snow", intensity: 1, plow: false, gusts })
+  S.setEnv(w, { snowScale: 0, windVar: 0 })
+  const r = { id: "a", x: 300, y: 400, w: 300, h: 200, floating: true, z: 0 }
+  S.setSurfaces(w, [r], 0)
+  // A column of flakes hanging just right of the window, still air.
+  for (let i = 0; i < 40; i++) w.particles.push({ kind: "flake", x: 640, y: 380 + i * 6, vx: 0, vy: 40, r: 1.5, depth: 0.5, vt: 40,
+                                                  phase: 0, freq: 1, sway: 0, life: 100, age: 0, rest: null })
+  let x = r.x
+  for (let t = 0; t < 0.35; t += dt) {
+    x += speed * dt
+    S.setSurfaces(w, [Object.assign({}, r, { x })], w.time)
+    S.step(w, dt)
+  }
+  return w
+}
+const meanVx = w => { const f = w.particles.filter(p => p.kind === "flake"); return sum(f.map(p => p.vx)) / f.length }
+
+test("a window moving fast pushes the air: nearby flakes are carried along", () => {
+  const fast = gustScene(900, true)
+  const slow = gustScene(80, true)
+  const off = gustScene(900, false)
+  assert.ok(meanVx(fast) > 150, `pushed: ${meanVx(fast)}`)
+  assert.ok(Math.abs(meanVx(slow)) < 30, `a slow drag stirs little: ${meanVx(slow)}`)
+  assert.ok(Math.abs(meanVx(off)) < 30, `switched off: ${meanVx(off)}`)
+})
+
+test("gusts fall off with distance and linger a moment after the window stops", () => {
+  const w = S.createWorld(1600, 1000, { effect: "snow", plow: false })
+  const r = { id: "a", x: 300, y: 400, w: 300, h: 200, floating: true, z: 0 }
+  S.setSurfaces(w, [r], 0)
+  let x = r.x
+  for (let t = 0; t < 0.4; t += dt) { x += 1000 * dt; S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
+  const e = w.gustList[0]
+  assert.ok(S.gustAt(w, e.x + e.w + 10, 500))
+  const near = w.gx
+  assert.ok(S.gustAt(w, e.x + e.w + 200, 500))
+  const far = w.gx
+  assert.ok(near > far * 4 && far > 0, `${near} vs ${far}`)
+  assert.ok(!S.gustAt(w, e.x + e.w + 900, 500), "out of reach")
+  // Stopped: the air coasts on, then settles.
+  for (let t = 0; t < 0.2; t += dt) { S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
+  assert.ok(w.gustList.length === 1, "still moving air")
+  for (let t = 0; t < 3; t += dt) { S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
+  assert.strictEqual(w.gustList.length, 0)
+})
+
+test("a fast window blows loose powder up off the ground snow beneath it", () => {
+  const w = S.createWorld(1600, 1000, { effect: "snow", plow: false })
+  S.setEnv(w, { snowScale: 0 })
+  const g = w.surfaces.__ground
+  g.bins = g.bins.map(() => 12)
+  g.pack = 0.1
+  const r = { id: "a", x: 200, y: 880, w: 300, h: 100, floating: true, z: 0 }
+  S.setSurfaces(w, [r], 0)
+  const before = sum(g.bins)
+  let x = r.x
+  for (let t = 0; t < 0.6; t += dt) { x += 1500 * dt; S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
+  assert.ok(w.particles.some(p => p.kind === "powder"), "powder in the air")
+  assert.ok(sum(g.bins) < before, "taken from the ground")
+})
+
+// ------------------------------------------------------------- writing
+
+test("writing presses a groove into the snow; new snow fills it in", () => {
+  const { w, r } = snowy()
+  const g = w.surfaces.__ground
+  const y = 1000 - 7
+  assert.ok(S.writeStart(w, 300, y))
+  for (let x = 300; x <= 420; x += 3) S.writeTo(w, x, y + Math.sin(x * 0.1) * 3)
+  S.writeEnd(w)
+  assert.ok(g.marks.length > 60, `points: ${g.marks.length}`)
+  assert.ok(g.marks.every(m => m.t === 0 && m.a === 1))
+  // Nothing falls: it stays crisp.
+  run(w, 5, [r])
+  assert.ok(g.marks.length > 60 && g.marks.every(m => m.a === 1))
+  // Fresh snow on it: the groove fades a little with every flake, and goes.
+  S.setEnv(w, { snowScale: 1 })
+  run(w, 50, [r])
+  const left = g.marks.length ? sum(g.marks.map(m => m.a)) / 124 : 0
+  assert.ok(left < 0.85, `fading: ${left}`)
+  w.intensity = 2
+  run(w, 90, [r])
+  assert.ok(!g.marks || g.marks.length < 15, `filled in: ${g.marks ? g.marks.length : 0}`)
+})
+
+test("writing along the top cuts a notch with a raised rim, and needs snow to write in", () => {
+  const { w } = snowy()
+  const g = w.surfaces.__ground
+  const c = Math.floor(500 / 4)
+  const before = g.bins.slice(c - 2, c + 3)
+  const top = 1000 - g.bins[c]
+  assert.ok(S.writeStart(w, 502, top + 1))
+  S.writeTo(w, 503, top + 1)
+  S.writeEnd(w)
+  assert.ok(g.bins[c] < before[2], "notched")
+  assert.ok(g.bins[c - 1] > before[1] || g.bins[c + 1] > before[3], "rim")
+  // Bare desktop: nothing to write in.
+  assert.ok(!S.writeStart(w, 800, 200))
+  assert.strictEqual(w.pen, null)
+})
+
+test("marks go where the snow under them goes", () => {
+  const { w, r } = snowy()
+  const g = w.surfaces.__ground
+  S.writeStart(w, 600, 1000 - 4); S.writeTo(w, 650, 1000 - 4); S.writeEnd(w)
+  const n = g.marks.length
+  for (let i = 140; i <= 170; i++) g.bins[i] = 1
+  run(w, 0.2, [r])
+  assert.ok(g.marks.length < n * 0.6, `${g.marks.length} of ${n}`)
+})
+
+// ------------------------------------------------------------- icicles
+
+test("icicles grow on a snowy window's bottom edge, slowly, and only while it holds snow", () => {
+  const ic = { len: 0, max: 20 }
+  S.growIcicle(ic, 60, 1)
+  assert.ok(ic.len > 0.5 && ic.len < 3, `a minute: ${ic.len}`)
+  S.growIcicle(ic, 3600, 1)
+  assert.ok(ic.len > 19 && ic.len <= 20, `an hour: ${ic.len}`)
+  const night = { len: 0, max: 20 }
+  S.growIcicle(night, 3600, 0.06)
+  assert.ok(night.len < 5, `barely at night: ${night.len}`)
+
+  const { w, r } = snowy()
+  S.setEnv(w, { snowScale: 0, icicle: 1, tempC: -2 })
+  run(w, 1, [r])
+  const s = w.surfaces.a
+  assert.ok(s.icicles && s.icicles.length >= 5, "seeded along the edge")
+  assert.ok(s.icicles.every(i => i.ox > 0 && i.ox < r.w))
+  for (let k = 0; k < 12000; k++) S.step(w, 0.05)   // ten minutes
+  const long = s.icicles.filter(i => i.len > 3).length
+  assert.ok(long >= 3, `grown: ${long}`)
+  // A bare window grows none.
+  const bare = S.createWorld(1600, 1000, { plow: false })
+  S.setEnv(bare, { snowScale: 0, icicle: 1 })
+  run(bare, 2, [r])
+  assert.ok(!bare.surfaces.a.icicles)
+})
+
+test("icicles drip one drop at a time in the thaw, and shrink in the warmth", () => {
+  const { w, r } = snowy()
+  const s = w.surfaces.a
+  s.icicles = S.seedIcicles(s)
+  s.icicles.forEach(i => { i.len = i.max })
+  S.setEnv(w, { snowScale: 0, drip: 1, tempC: 0.5 })
+  let drops = 0
+  for (let t = 0; t < 20; t += dt) {
+    S.setSurfaces(w, [r], w.time); S.step(w, dt)
+    drops = Math.max(drops, w.particles.filter(p => p.kind === "drip").length)
+  }
+  assert.ok(drops >= 1, "it drips")
+  assert.ok(drops <= s.icicles.length, "single drops, not a stream")
+  // Drops start at the tips.
+  const lens = s.icicles.map(i => i.len)
+  S.setEnv(w, { snowScale: 0, tempC: 8, melt: 0.0005 })
+  run(w, 60, [r])
+  assert.ok(s.icicles.every((i, k) => i.len < lens[k]), "melting")
+  S.setEnv(w, { drip: 0, tempC: -5 })
+  w.particles = []
+  run(w, 10, [r])
+  assert.strictEqual(w.particles.filter(p => p.kind === "drip").length, 0, "frozen: no drips")
+})
+
+test("a jolt snaps the icicles off, long ones first, and they fall and shatter", () => {
+  const { w, r } = snowy()
+  const s = w.surfaces.a
+  s.icicles = S.seedIcicles(s)
+  s.icicles.forEach((i, k) => { i.len = k % 2 ? 24 : 4 })
+  S.setEnv(w, { snowScale: 0, tempC: -3 })
+  // A gentle drag keeps them.
+  let x = r.x
+  for (let t = 0; t < 1; t += dt) { x += 60 * dt; S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
+  assert.ok(s.icicles.filter(i => i.len > 20).length >= 3, "a gentle drag keeps them")
+  // A fling snaps the long ones.
+  for (let t = 0; t < 0.25; t += dt) { x += 1800 * dt; S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
+  const shards = w.particles.filter(p => p.kind === "shard").length
+  assert.ok(shards >= 3, `snapped: ${shards}`)
+  assert.ok(s.icicles.filter(i => i.len > 20).length === 0)
+  run(w, 3, [Object.assign({}, r, { x })])
+  assert.strictEqual(w.particles.filter(p => p.kind === "shard").length, 0, "shattered on landing")
+})
+
+test("closing a window drops its icicles; a hidden window keeps them", () => {
+  const { w, r } = snowy()
+  const s = w.surfaces.a
+  s.icicles = S.seedIcicles(s)
+  s.icicles.forEach(i => { i.len = 15 })
+  S.setSurfaces(w, [], w.time, ["a"])
+  assert.ok(w.stash.a && w.stash.a.icicles.length)
+  S.setSurfaces(w, [r], w.time)
+  assert.ok(w.surfaces.a.icicles.every(i => i.len === 15), "back with it")
+  S.setSurfaces(w, [], w.time)
+  assert.ok(w.particles.filter(p => p.kind === "shard").length >= 3, "closed: they fall")
+})
+
+// ------------------------------------------------------------- day and night
+
+test("the night glaze builds slowly, holds snow down, and fresh snow covers it", () => {
+  const { w, r } = snowy()
+  S.setEnv(w, { snowScale: 0, freeze: 1 })
+  for (let k = 0; k < 24000; k++) S.step(w, 0.05)   // twenty minutes
+  const glaze = w.surfaces.a.glaze
+  assert.ok(glaze > 0.5, `glazed: ${glaze}`)
+  S.setEnv(w, { snowScale: 2, freeze: 1 })
+  run(w, 20, [r])
+  assert.ok(w.surfaces.a.glaze < glaze, "covered by fresh snow")
+})
+
+test("warm afternoons melt the lying snow slowly; cold ones keep it", () => {
+  const cold = snowy().w, warm = snowy().w
+  S.setEnv(cold, { snowScale: 0, melt: 0 })
+  S.setEnv(warm, { snowScale: 0, melt: 1 / 1800 })
+  // The window's snow (the ground has its own slow melt to stop endless piles).
+  const onWin = w => sum(w.surfaces.a.bins)
+  const a = onWin(cold), b = onWin(warm)
+  for (let k = 0; k < 12000; k++) { S.step(cold, 0.05); S.step(warm, 0.05) }   // ten minutes
+  assert.ok(onWin(warm) < b * 0.85, `melted: ${onWin(warm)} of ${b}`)
+  assert.ok(onWin(cold) > a * 0.95, `kept: ${onWin(cold)} of ${a}`)
+})
+
+// ------------------------------------------------------------- spring
+
+test("spring: no flakes, petals drift down instead, sprouts come up through thin snow", () => {
+  const w = S.createWorld(1600, 1000, { effect: "snow", intensity: 1, plow: false })
+  S.setEnv(w, { snowScale: 0, petals: 1, sprouts: 1, spring: 1 })
+  const g = w.surfaces.__ground
+  g.bins = g.bins.map((v, i) => i < 200 ? 20 : 0)
+  run(w, 50, [])
+  assert.strictEqual(w.particles.filter(p => p.kind === "flake").length, 0)
+  assert.ok(w.particles.filter(p => p.kind === "petal" && p.blossom).length > 5)
+  const up = w.sprouts.filter(s => s.g > 0.8)
+  assert.ok(up.length > 10, `sprouts: ${up.length}`)
+  assert.ok(up.every(s => s.x > 200 * 4 - 20), "not through deep snow")
+  // Back to winter: they wither away.
+  S.setEnv(w, { sprouts: 0 })
+  run(w, 100, [])
+  assert.strictEqual(w.sprouts, null)
+})
+
+// ------------------------------------------------------------- fireworks
+
+test("fireworks: shells rise, burst into embers near the top, and the show ends", () => {
+  const w = S.createWorld(1600, 1000, { effect: "snow", plow: false })
+  S.setEnv(w, { snowScale: 0 })
+  S.startFireworks(w, 12)
+  let rockets = 0, embers = 0, highest = 1000
+  for (let t = 0; t < 12; t += dt) {
+    S.step(w, dt)
+    for (const p of w.particles) {
+      if (p.kind === "rocket") { rockets++; highest = Math.min(highest, p.y) }
+      if (p.kind === "ember" && !p.flash) embers++
+    }
+  }
+  assert.ok(rockets > 0 && embers > 0)
+  assert.ok(highest < 1000 * 0.7, "they climb well up")
+  assert.strictEqual(w.fw, null)
+  run(w, 5, [])
+  assert.strictEqual(w.particles.filter(p => p.kind === "ember" || p.kind === "rocket").length, 0, "all burnt out")
+  S.countdownTick(w, 3)
+  assert.strictEqual(w.particles.filter(p => p.kind === "tick").length, 1)
+})
+
+// ------------------------------------------------------------- the bird, the cat, the golden flake
+
+test("a bird lands on a snowy ledge, leaves footprints, and flies off when the pointer comes near", () => {
+  const { w, r } = snowy()
+  assert.ok(S.spawnBird(w))
+  run(w, 3, [r])
+  assert.strictEqual(w.bird.mode, "perch")
+  const s = w.surfaces.a
+  assert.ok(s.marks && s.marks.some(m => m.t === 2), "footprints")
+  const B = w.bird
+  run(w, 0.2, [r], () => ({ pointer: { x: B.x + 30, y: B.y - 10, vx: 0, vy: 0, present: true } }))
+  assert.strictEqual(w.bird.mode, "out")
+  run(w, 4, [r])
+  assert.strictEqual(w.bird, null, "gone")
+})
+
+test("a perched bird flies off when its window moves, and none comes without a snowy ledge", () => {
+  const { w, r } = snowy()
+  S.spawnBird(w)
+  run(w, 3, [r])
+  let x = r.x
+  for (let t = 0; t < 0.3; t += dt) { x += 300 * dt; S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
+  assert.strictEqual(w.bird.mode, "out")
+  const bare = S.createWorld(1600, 1000, { plow: false })
+  S.setSurfaces(bare, [r], 0)
+  assert.ok(!S.spawnBird(bare))
+})
+
+test("a cat walks across the ground snow leaving pawprints", () => {
+  const { w, r } = snowy()
+  assert.ok(S.spawnCat(w))
+  w.cat.sat = true
+  run(w, 10, [r])
+  const prints = w.surfaces.__ground.marks.filter(m => m.t === 1)
+  assert.ok(prints.length > 20, `prints: ${prints.length}`)
+  run(w, 40, [r])
+  assert.strictEqual(w.cat, null, "walked off")
+  const bare = S.createWorld(1600, 1000, { plow: false })
+  assert.ok(!S.spawnCat(bare), "no snow, no cat")
+})
+
+test("the golden snowflake falls slowly; caught, it tells the shell once", () => {
+  const { w, r } = snowy()
+  assert.ok(S.spawnGolden(w))
+  assert.ok(!S.spawnGolden(w), "one at a time")
+  run(w, 4, [r])
+  const F = w.golden
+  assert.ok(F.y > 30 && F.y < 200, `slow: ${F.y}`)
+  assert.ok(S.goldenRect(w).w > 0)
+  assert.ok(S.goldenAt(w, F.x + 5, F.y))
+  run(w, dt, [r], () => ({ pointer: { x: F.x, y: F.y, vx: 0, vy: 0, present: true } }))
+  assert.strictEqual(w.golden, null)
+  assert.deepStrictEqual(S.takeEvents(w), [{ type: "golden" }])
+  assert.deepStrictEqual(S.takeEvents(w), [])
+  assert.ok(w.particles.some(p => p.kind === "spark"))
+})
+
+test("golden flake unlocks persist: each unlocks the next finish, saved and reloaded", () => {
+  let saved = Store.defaults()
+  assert.deepStrictEqual(saved.ornamentStyles, ["glass"])
+  assert.strictEqual(Store.unlockNext(saved), "frosted")
+  assert.strictEqual(saved.ornamentStyle, "frosted")
+  saved = Store.normalize(JSON.parse(JSON.stringify(saved)))
+  assert.deepStrictEqual(saved.ornamentStyles, ["glass", "frosted"])
+  assert.strictEqual(saved.ornamentStyle, "frosted")
+  assert.strictEqual(Store.unlockNext(saved), "pearl")
+  assert.strictEqual(Store.nextStyle(saved), "glass")
+  while (Store.unlockNext(saved));
+  assert.deepStrictEqual(saved.ornamentStyles, Store.ORNAMENT_STYLES)
+  assert.strictEqual(Store.unlockNext(saved), "")
+  // A hand-edited file can't unlock what wasn't caught, or pick a locked one.
+  const evil = Store.normalize({ ornamentStyles: ["gilded", "bogus"], ornamentStyle: "mercury" })
+  assert.deepStrictEqual(evil.ornamentStyles, ["glass", "gilded"])
+  assert.strictEqual(evil.ornamentStyle, "glass")
+  // Baubles keep their finish.
+  const t = Store.normalizeTree({ ornaments: [{ kind: "bauble", style: "pearl" }, { kind: "bauble", style: "nope" }, { kind: "light", style: "pearl" }] })
+  assert.strictEqual(t.ornaments[0].style, "pearl")
+  assert.strictEqual(t.ornaments[1].style, undefined)
+  assert.strictEqual(t.ornaments[2].style, undefined)
+})
+
+// ------------------------------------------------------------- snowballs to friends
+
+test("offscreen throw: only a free ball moving fast at the edge leaves", () => {
+  const b = { x: 1590, r: 12, vx: 1400, held: false }
+  assert.strictEqual(S.throwsOff(b, 1600, 1150), "right")
+  assert.strictEqual(S.throwsOff(Object.assign({}, b, { vx: 600 }), 1600, 1150), "")
+  assert.strictEqual(S.throwsOff(Object.assign({}, b, { held: true }), 1600, 1150), "")
+  assert.strictEqual(S.throwsOff({ x: 8, r: 12, vx: -1500 }, 1600, 1150), "left")
+  assert.strictEqual(S.throwsOff({ x: 800, r: 12, vx: -1500 }, 1600, 1150), "")
+})
+
+function thrown(throwOut, vx) {
+  const w = S.createWorld(1600, 1000, { effect: "snow", plow: false })
+  S.setEnv(w, { snowScale: 0 })
+  S.setFeatures(w, { throwOut })
+  const b = S.makeBall(w, 1400, 500, Math.PI * 14 * 14, 0.9)
+  b.vx = vx; b.vy = -200
+  w.balls.push(b)
+  for (let t = 0; t < 1; t += dt) S.step(w, dt)
+  return w
+}
+
+test("a hard throw at the side sails off to a friend; without friends it bursts there", () => {
+  const w = thrown(true, 1800)
+  const ev = S.takeEvents(w)
+  assert.strictEqual(ev.length, 1)
+  assert.strictEqual(ev[0].type, "throw")
+  assert.strictEqual(ev[0].side, "right")
+  assert.ok(ev[0].y > 0.2 && ev[0].y < 0.7 && ev[0].vx > 1150 && ev[0].r > 10)
+  assert.strictEqual(w.balls.length, 0)
+  const off = thrown(false, 1800)
+  assert.strictEqual(S.takeEvents(off).length, 0)
+  assert.ok(off.particles.some(p => p.kind === "clump"), "burst on the edge")
+  const soft = thrown(true, 500)
+  assert.strictEqual(S.takeEvents(soft).length, 0, "too slow to leave")
+})
+
+test("a friend's snowball flies in by the opposite edge and splats", () => {
+  const w = S.createWorld(1600, 1000, { effect: "snow", plow: false })
+  S.setEnv(w, { snowScale: 0 })
+  const r = { id: "a", x: 700, y: 450, w: 600, h: 400, floating: true, z: 0 }
+  S.setSurfaces(w, [r], 0)
+  const b = S.launchBall(w, { side: "right", y: 0.5, vx: 1700, vy: -100, r: 14 })
+  assert.ok(b.x < 0 && b.vx > 0, "in from the left")
+  const c = S.launchBall(w, { side: "left", y: 0.5, vx: 1700, vy: -100, r: 14 })
+  assert.ok(c.x > 1600 && c.vx < 0, "in from the right")
+  for (let t = 0; t < 2; t += dt) { S.setSurfaces(w, [r], w.time); S.step(w, dt) }
+  assert.ok(w.balls.length < 2, "at least one burst")
+  assert.ok(sum(w.surfaces.a.bins) + sum(w.surfaces.__ground.bins) > 0, "a splat stuck somewhere")
+})
+
+test("snowballs travel as gifts: clamped on the way in, from friends only by kind", () => {
+  const me = { id: "a".repeat(32), name: "Saman" }
+  const msg = Store.giftMessage(me, "snowball", { side: "right", y: 0.4, vx: 99999, vy: -300, r: 500, type: "throw" })
+  assert.deepStrictEqual(msg.art, { side: "right", y: 0.4, vx: 3200, vy: -300, r: 40 })
+  const line = JSON.stringify({ event: "message", id: "x1", message: JSON.stringify(msg) })
+  const got = Store.parseInbox(line, [{ id: me.id, name: "Saman" }])
+  assert.strictEqual(got.gift.kind, "snowball")
+  assert.strictEqual(got.gift.art.side, "right")
+  const evil = JSON.parse(JSON.stringify(msg)); evil.art = { side: "up", y: "x", vx: -5 }
+  const bad = Store.parseInbox(JSON.stringify({ event: "message", id: "x2", message: JSON.stringify(evil) }), [])
+  assert.deepStrictEqual(bad.gift.art, { side: "right", y: 0.5, vx: 300, vy: -200, r: 12 })
+  const saved = Store.normalize({ friends: [{ id: "b".repeat(32), name: "Ali" }, { id: "c".repeat(32), name: "Sara" }], throwTo: "c".repeat(32) })
+  assert.strictEqual(Store.throwTarget(saved).name, "Sara")
+  assert.strictEqual(Store.throwTarget(Store.normalize({ friends: saved.friends })).name, "Ali")
+  assert.strictEqual(Store.throwTarget(Store.defaults()), null)
+})
+
+// ------------------------------------------------------------- the state behind it
+
+test("new settings default sensibly and survive a hand-edited file", () => {
+  const d = Store.defaults()
+  assert.strictEqual(d.liveWeather, false, "live weather is opt-in")
+  assert.strictEqual(d.throwToFriends, false, "throwing to friends is opt-in")
+  for (const k of ["shake", "windGusts", "writing", "dayCycle", "seasons", "newYear", "surprises", "themeSync"]) assert.strictEqual(d[k], true, k)
+  const n = Store.normalize({ calm: "work", workHours: { start: "08:30", end: "25:00", days: [6, 0, 9, 1, 1] }, weatherLat: "35.7",
+                              weatherLon: 400, weatherCity: "Tehran", surprises: false, weatherCache: { at: 5, current: { tempC: 999 } } })
+  assert.strictEqual(n.calm, "work")
+  assert.deepStrictEqual(n.workHours, { start: "08:30", end: "17:00", days: [0, 1, 6] })
+  assert.strictEqual(n.weatherLat, 35.7)
+  assert.strictEqual(n.weatherLon, null)
+  assert.strictEqual(n.surprises, false)
+  assert.strictEqual(n.weatherCache.current.tempC, 60)
+  assert.strictEqual(Store.normalize({ calm: "sometimes" }).calm, "off")
+})
+
+test("snowmen: new ones are bare, a click dresses them piece by piece, old ones keep their outfit", () => {
+  assert.deepStrictEqual(Store.normalizeSnowman({}).outfit, { nose: true, scarf: true, hat: true }, "saved before outfits: all on")
+  let o = { nose: false, scarf: false, hat: false }
+  o = Store.dressNext(o); assert.deepStrictEqual(o, { nose: true, scarf: false, hat: false })
+  o = Store.dressNext(o); assert.deepStrictEqual(o, { nose: true, scarf: true, hat: false })
+  o = Store.dressNext(o); assert.deepStrictEqual(o, { nose: true, scarf: true, hat: true })
+  o = Store.dressNext(o); assert.deepStrictEqual(o, { nose: false, scarf: false, hat: false })
+  const m = Store.normalize({ snowmen: [{ outfit: { nose: true, hat: 1 }, themeScarf: true }] }).snowmen[0]
+  assert.deepStrictEqual(m.outfit, { nose: true, scarf: false, hat: true })
+  assert.strictEqual(m.themeScarf, true)
+})

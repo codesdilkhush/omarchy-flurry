@@ -7,6 +7,7 @@ import qs.Commons as Commons
 import "lib/sim.js" as Sim
 import "lib/draw.js" as Draw
 import "lib/store.js" as Store
+import "lib/policy.js" as Policy
 
 // One screen's weather. A transparent layer over the windows that takes no
 // input except on the things you can touch: decorations, visitors, snow
@@ -41,14 +42,16 @@ PanelWindow {
   WlrLayershell.layer: WlrLayer.Top
   WlrLayershell.keyboardFocus: decorating ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
+  // Hyprland's fullscreen state of each window on this workspace; a real
+  // fullscreen one (not just maximized) pauses the scene, simulation and all.
   function fullscreenMode() {
-    var mode = 0
+    var modes = []
     var list = workspace && workspace.toplevels ? workspace.toplevels.values : []
     for (var i = 0; i < list.length; i++) {
       var ipc = list[i].lastIpcObject
-      if (ipc && ipc.fullscreen) mode = Math.max(mode, Number(ipc.fullscreen))
+      if (ipc && ipc.fullscreen) modes.push(Number(ipc.fullscreen))
     }
-    return mode
+    return Policy.fullscreenActive(modes) ? 2 : 0
   }
 
   // ------------------------------------------------------------ simulation
@@ -64,7 +67,11 @@ PanelWindow {
 
   Component.onCompleted: {
     world = Sim.createWorld(width, height, { effect: service ? service.effect : "snow", intensity: service ? service.intensity : 1, groundInset: groundInset, plow: service ? service.plowOn : true })
-    if (service) service.registerScene(screenName, sceneWin)
+    if (service) {
+      Sim.setEnv(world, service.env)
+      applyFeatures()
+      service.registerScene(screenName, sceneWin)
+    }
   }
   Component.onDestruction: if (service) service.unregisterScene(screenName, sceneWin)
 
@@ -77,6 +84,15 @@ PanelWindow {
     function onEffectChanged() { if (sceneWin.world) Sim.setEffect(sceneWin.world, sceneWin.service.effect) }
     function onIntensityChanged() { if (sceneWin.world) Sim.setIntensity(sceneWin.world, sceneWin.service.intensity) }
     function onPlowOnChanged() { if (sceneWin.world) Sim.setPlow(sceneWin.world, sceneWin.service.plowOn) }
+    function onEnvChanged() { if (sceneWin.world) Sim.setEnv(sceneWin.world, sceneWin.service.env) }
+    function onSavedChanged() { sceneWin.applyFeatures() }
+    function onThrowOnChanged() { sceneWin.applyFeatures() }
+    function onThemeChanged() { canvas.requestPaint() }
+  }
+
+  function applyFeatures() {
+    if (!world || !service) return
+    Sim.setFeatures(world, { gusts: service.saved.windGusts, icicles: service.saved.dayCycle, throwOut: service.throwOn })
   }
 
   onLiveChanged: {
@@ -138,10 +154,10 @@ PanelWindow {
     onTriggered: {
       var dt = frameTime
       sceneWin.clock += dt
-      // On battery the scene draws every other frame.
-      if (sceneWin.service.quality < 1) {
+      // On battery the scene draws at 30 fps (24 when it runs low).
+      if (sceneWin.service.fpsCap < 60) {
         sceneWin.frameDebt += dt
-        if (sceneWin.frameDebt < 1 / 30) return
+        if (sceneWin.frameDebt < 1 / sceneWin.service.fpsCap) return
         dt = sceneWin.frameDebt
         sceneWin.frameDebt = 0
       }
@@ -155,6 +171,8 @@ PanelWindow {
                                   stillFor: p.stillFor } : null
         Sim.setStrings(sceneWin.world, sceneWin.stringSpecs())
         Sim.step(sceneWin.world, dt, { pointer: local })
+        var events = Sim.takeEvents(sceneWin.world)
+        for (var e = 0; e < events.length; e++) sceneWin.service.sceneEvent(sceneWin, events[e])
         canvas.requestPaint()
       }
       sceneWin.stepVisitors(dt)
@@ -205,14 +223,46 @@ PanelWindow {
     hoverEnabled: true
     acceptedButtons: Qt.LeftButton
     cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+    // Ctrl+drag writes in the snow instead of scooping it.
+    property bool writing: false
     onPressed: function(mouse) {
+      if (Sim.goldenAt(sceneWin.world, mouse.x, mouse.y)) { Sim.catchGolden(sceneWin.world); return }
+      writing = false
+      if ((mouse.modifiers & Qt.ControlModifier) && sceneWin.service.saved.writing) {
+        writing = Sim.writeStart(sceneWin.world, mouse.x, mouse.y)
+        if (!writing) mouse.accepted = false
+        return
+      }
       var got = Sim.grabSnow(sceneWin.world, mouse.x, mouse.y)
       if (!got) { mouse.accepted = false; return }
       sceneWin.ballsMoving = true
     }
-    onPositionChanged: function(mouse) { if (pressed) Sim.dragSnow(sceneWin.world, mouse.x, mouse.y) }
-    onReleased: Sim.letGo(sceneWin.world)
-    onCanceled: Sim.letGo(sceneWin.world)
+    onPositionChanged: function(mouse) {
+      if (!pressed) return
+      if (writing) Sim.writeTo(sceneWin.world, mouse.x, mouse.y)
+      else Sim.dragSnow(sceneWin.world, mouse.x, mouse.y)
+    }
+    onReleased: { if (writing) Sim.writeEnd(sceneWin.world); else Sim.letGo(sceneWin.world); writing = false }
+    onCanceled: { if (writing) Sim.writeEnd(sceneWin.world); else Sim.letGo(sceneWin.world); writing = false }
+  }
+
+  // The golden snowflake takes a click wherever it is.
+  property var goldenZone: noZone
+  Timer {
+    interval: 50
+    repeat: true
+    running: sceneWin.live && !!sceneWin.world && !!sceneWin.world.golden
+    onTriggered: {
+      var r = Sim.goldenRect(sceneWin.world)
+      sceneWin.goldenZone = r ? r : sceneWin.noZone
+    }
+    onRunningChanged: if (!running) sceneWin.goldenZone = sceneWin.noZone
+  }
+  MouseArea {
+    x: sceneWin.goldenZone.x; y: sceneWin.goldenZone.y; width: sceneWin.goldenZone.w; height: sceneWin.goldenZone.h
+    enabled: sceneWin.goldenZone.w > 0
+    cursorShape: Qt.PointingHandCursor
+    onPressed: Sim.catchGolden(sceneWin.world)
   }
 
   Canvas {
@@ -371,7 +421,7 @@ PanelWindow {
         if (!cls) return
         if (sceneWin.tool === "erase") { sceneWin.service.removeWindowLights(cls); return }
         var palette = sceneWin.service.decorateWindow(cls)
-        if (palette) sceneWin.say({ warm: "Warm white", multi: "Classic colours", cool: "Icy blue", candy: "Candy cane" }[palette] + ". Click again for other colours.", mouse.x, mouse.y - 30)
+        if (palette) sceneWin.say({ warm: "Warm white", theme: "Theme colours", multi: "Classic colours", cool: "Icy blue", candy: "Candy cane" }[palette] + ". Click again for other colours.", mouse.x, mouse.y - 30)
         return
       }
       if (sceneWin.tool === "tree") sceneWin.service.addTree(sceneWin.placeAt("tree", mouse.x, mouse.y))
@@ -399,6 +449,48 @@ PanelWindow {
   // ------------------------------------------------------------ visitors
 
   function callPlow() { return world ? Sim.callPlow(world) : false }
+
+  // The snow globe: everything lying about lifts and swirls, and the
+  // decorations rock.
+  property real shakeAt: -10
+  function shake() {
+    if (!world || !live) return false
+    Sim.shake(world, 1)
+    shakeAt = clock
+    return true
+  }
+
+  function startFireworks(seconds) {
+    if (!world || !live) return false
+    return Sim.startFireworks(world, seconds)
+  }
+  function countdownTick(n) { if (world && live) Sim.countdownTick(world, n) }
+
+  // What can come here now, for picking a surprise.
+  function surpriseContext() {
+    if (!world || !live) return {}
+    var snowy = false
+    for (var i = 0; i < world.order.length; i++) {
+      var s = world.order[i]
+      if (!s.ground && !s.plow && Sim.sumOf(s.bins) > 40) snowy = true
+    }
+    var g = world.surfaces[Sim.GROUND_ID]
+    return { snowyWindow: snowy, groundSnow: !!g && Sim.sumOf(g.bins) / g.bins.length > 2.5 && !world.plow,
+             snowing: world.effect === "snow" && world.env.snowScale > 0.2 }
+  }
+  function surprise(kind) {
+    if (!world || !live) return false
+    if (kind === "bird") return Sim.spawnBird(world)
+    if (kind === "cat") return Sim.spawnCat(world)
+    if (kind === "golden") return Sim.spawnGolden(world)
+    return false
+  }
+
+  // A friend's snowball, flying in.
+  function incomingSnowball(art) {
+    if (!world || !live) return false
+    return !!Sim.launchBall(world, art)
+  }
 
   function callSanta() {
     if (!santa.running) santa.start()
@@ -628,6 +720,8 @@ PanelWindow {
     Region { item: yeti.visible ? yeti : null }
     Region { item: menu.visible ? menu : null }
     Region { item: toolbar.visible ? toolbar : null }
+    // The golden snowflake, while one falls.
+    Region { x: sceneWin.goldenZone.x; y: sceneWin.goldenZone.y; width: sceneWin.goldenZone.w; height: sceneWin.goldenZone.h }
     // Snow and snowballs you can take hold of (see touchZones in sim.js).
     Region { x: sceneWin.zone(0).x; y: sceneWin.zone(0).y; width: sceneWin.zone(0).w; height: sceneWin.zone(0).h }
     Region { x: sceneWin.zone(1).x; y: sceneWin.zone(1).y; width: sceneWin.zone(1).w; height: sceneWin.zone(1).h }

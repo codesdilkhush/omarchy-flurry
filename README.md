@@ -184,6 +184,39 @@ has your code can, though, so share it with friends only. To use your own
 ntfy server, set `"server"` in `~/.local/state/omarchy-flurry/state.json`.
 Incoming gifts are size-checked and validated before anything is drawn.
 
+### Shake the globe
+`flurry shake`, or the **Shake** button in the menu, lifts the settled snow back into the air. Mass is conserved as it lifts. Three slow eddies turn it over, the decorations rock, and it all settles again.
+
+### Wind from your windows
+When you fling a window faster than about 140 px/s, it sheds the snow sitting on top of it. The gust also pushes nearby falling flakes and loose powder. Toggle with `flurry gusts`.
+
+### Write in the snow
+Hold **Ctrl** and drag across the snow to cut a groove with a lit rim. New snow fills it in over time. Writing needs **Snowballs** turned on, since it uses the same touch areas. Toggle with `flurry writing`.
+
+### Live weather
+This is off by default. Turn it on with `flurry city <name>` or `flurry location <lat> <lon>`, and control it with `flurry weather on|off|now`. It reads Open-Meteo every 15 minutes, with no API key. Snowfall, wind direction, wind speed and temperature drive the scene. The last reading is cached for up to 3 hours, and a failed fetch backs off quietly.
+
+### Day, thaw and icicles
+In the warm hours of the day, snow slowly settles and melts. Icicles grow along the bottom edges of snowy windows. Every so often one drips a single drop, and an icicle snaps off when its window moves. At night the snow freezes to a faint glaze that glints. Toggle with `flurry daycycle`.
+
+### Follows your Omarchy theme
+Flurry reads `~/.local/state/omarchy/current/theme/colors.toml` and tints the window lights, the snowman's scarf and the snow's shadows to match. It updates live when you switch themes. The light strings also get a **theme** palette. Toggle with `flurry theme`.
+
+### Seasons
+- **New Year:** a quiet 10-second countdown at local midnight on Jan 1, then about 100 seconds of minimal fireworks behind your windows. Preview them with `flurry fireworks [seconds]`. Toggle with `flurry newyear`.
+- **Spring:** in the 14 days before Nowruz (the March equinox), the snow stops and thaws, green sprouts come up along the ground, and petals drift down in place of flakes. Spring lasts until Sizdah Bedar. Preview it with `flurry season spring|winter|auto`. Toggle with `flurry seasons`.
+
+### Little surprises
+Every 6 to 16 minutes, something small happens. A bird lands on a snowy ledge, hops and pecks, and flies off when your cursor gets close or the window moves. A cat crosses the ground and leaves pawprints. Very rarely, a golden snowflake falls, and catching it unlocks a new bauble finish for the tree. Choose a finish with `flurry ornaments [style]`. Click a snowman to dress it one piece at a time: hat, carrot nose, then a scarf in your theme colour. Its outfit is remembered. To make a surprise happen now, use `flurry surprise [bird|cat|golden]`.
+
+### Throw a snowball to a friend
+This is opt-in. Pick a friend with `flurry throwto <friend>` and turn it on with `flurry throwing`. Throw a snowball off the edge of your screen faster than about 1150 px/s and it travels over ntfy. It flies in from the matching side of your friend's desktop and bursts on the first thing it hits.
+
+### Calm, fullscreen and battery
+- Flurry pauses while a fullscreen window is active.
+- On battery it runs at 30 fps, and below 20% charge at 24 fps.
+- `flurry calm on|off|work` turns off surprises and fireworks and softens the snow. With `work`, calm mode applies only during the `workHours` set in `state.json`.
+
 ## From the terminal
 
 `bin/flurry` wraps the IPC target, handy for Hyprland binds:

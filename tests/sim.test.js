@@ -90,7 +90,10 @@ test("a window yanked downward faster than gravity leaves its snow in the air", 
 
 test("sliding conserves snow", () => {
   const { w, r } = snowyWindow()
-  const airborne = () => w.particles.reduce((a, p) => a + (p.kind === "clump" || p.kind === "powder" ? p.amount : 0), 0)
+  // Flakes still falling from before the snow stopped count too: they land
+  // during the test (leaving them out made it fail now and then).
+  const flake = p => Math.PI * p.r * p.r * 0.22 / S.CELL
+  const airborne = () => w.particles.reduce((a, p) => a + (p.kind === "clump" || p.kind === "powder" ? p.amount : (p.kind === "flake" ? flake(p) : 0)), 0)
   const total = () => S.totalSnow(w) + airborne()
   const before = total()
   // Shake without melting: compare over a short window.

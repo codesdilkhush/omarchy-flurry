@@ -28,6 +28,26 @@ BarWidget {
   property bool popupOpen: false
   function close() { popupOpen = false }
 
+  // A labelled switch for one of the service's flags (Service.setFlag).
+  component FlagRow: RowLayout {
+    property var svc: null
+    property string flag: ""
+    property string label: ""
+    Layout.fillWidth: true
+    Text {
+      Layout.fillWidth: true
+      text: parent.label
+      elide: Text.ElideRight
+      color: Commons.Color.popups.text
+      font.family: Style.font.family
+      font.pixelSize: Style.font.body
+    }
+    ToggleSwitch {
+      checked: parent.svc ? !!parent.svc.saved[parent.flag] : false
+      onToggled: parent.svc.setFlag(parent.flag, !checked)
+    }
+  }
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -145,6 +165,56 @@ BarWidget {
         ToggleSwitch { checked: root.service ? root.service.saved.batterySaver : true; onToggled: root.service.setBatterySaver(!checked) }
       }
 
+      RowLayout {
+        Layout.fillWidth: true
+        spacing: Style.spacing.labelGap
+        Button {
+          Layout.fillWidth: true
+          bordered: true
+          text: "Shake"
+          tooltipText: "Shake the snow globe"
+          enabled: root.service && root.service.saved.shake
+          onClicked: { root.close(); root.service.shakeAll() }
+        }
+        Button {
+          Layout.fillWidth: true
+          bordered: true
+          visible: root.service && root.service.saved.ornamentStyles.length > 1
+          text: root.service ? "Baubles: " + root.service.saved.ornamentStyle : ""
+          tooltipText: "Bauble finish for new baubles (golden snowflakes unlock more)"
+          onClicked: root.service.nextOrnamentStyle()
+        }
+      }
+
+      PanelSectionHeader { text: "Seasons and surprises" }
+      FlagRow { svc: root.service; flag: "dayCycle"; label: "Melting, icicles, night glaze" }
+      FlagRow { svc: root.service; flag: "seasons"; label: "Spring at Nowruz" }
+      FlagRow { svc: root.service; flag: "newYear"; label: "New Year fireworks" }
+      FlagRow { svc: root.service; flag: "surprises"; label: "Birds, a cat, a golden flake" }
+      FlagRow { svc: root.service; flag: "windGusts"; label: "Wind from moving windows" }
+      FlagRow { svc: root.service; flag: "writing"; label: "Write in snow (Ctrl+drag)" }
+      FlagRow { svc: root.service; flag: "themeSync"; label: "Theme colours" }
+      FlagRow { svc: root.service; flag: "liveWeather"; label: "Live weather" }
+      TextField {
+        id: cityField
+        Layout.fillWidth: true
+        visible: root.service && root.service.saved.liveWeather
+        placeholderText: root.service && root.service.saved.weatherPlace ? root.service.saved.weatherPlace : "City, for the weather…"
+        maximumLength: 80
+        onAccepted: { if (text.trim() !== "") { root.service.setWeatherCity(text); text = "" } }
+      }
+
+      RowLayout {
+        Layout.fillWidth: true
+        Text { text: "Calm"; color: Commons.Color.popups.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
+        Item { Layout.fillWidth: true }
+        ButtonGroup {
+          options: [{ value: "off", label: "Off" }, { value: "on", label: "On" }, { value: "work", label: "Work hours" }]
+          value: root.service ? root.service.saved.calm : "off"
+          onChanged: function(v) { root.service.setCalm(v) }
+        }
+      }
+
       PanelSectionHeader { text: "Friends" }
 
       Button {
@@ -161,6 +231,13 @@ BarWidget {
         spacing: Style.spacing.labelGap
         Button { Layout.fillWidth: true; bordered: true; text: "Copy my code"; onClicked: root.service.copyFriendCode() }
         Button { Layout.fillWidth: true; bordered: true; text: "Add from clipboard"; onClicked: root.service.addFriendFromClipboard() }
+      }
+
+      FlagRow {
+        svc: root.service
+        flag: "throwToFriends"
+        visible: root.service && root.service.friends.length > 0
+        label: root.service && root.service.throwFriend ? "Throw snowballs to " + root.service.throwFriend.name : "Throw snowballs to friends"
       }
 
       Repeater {
