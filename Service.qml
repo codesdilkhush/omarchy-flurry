@@ -1096,6 +1096,18 @@ Item {
     return (r.kind ? r.kind + ": " : "") + (r.why || "nothing can come now")
   }
 
+  // For the panel: is a visitor here now, and if not, why it can't come
+  // (the same answer `flurry diag` gives). { here, why }: why is "" when
+  // it can come.
+  function visitorStatus(kind) {
+    kind = Policy.surpriseAlias(kind)
+    var scene = focusedScene()
+    if (!scene || !root.active) return { here: false, why: "Flurry is off" }
+    var ctx = surpriseContextOf(scene)
+    if (ctx.offline) return { here: false, why: ctx.offline }
+    return { here: !!ctx[kind], why: Policy.surpriseBlock(kind, ctx) }
+  }
+
   // `flurry freeze`: the windows in view freeze now, whatever the weather.
   function freezeNow() {
     var scene = focusedScene()

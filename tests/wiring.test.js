@@ -54,3 +54,17 @@ test("no QML object sets a handler, property or function twice (a load error tha
     }
   }
 })
+
+test("every string the panel reads has an English entry, and each catalog has the same keys", () => {
+  const dir = path.join(root, "i18n")
+  const en = JSON.parse(fs.readFileSync(path.join(dir, "en.json"), "utf8"))
+  for (const f of fs.readdirSync(dir)) {
+    const cat = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"))
+    assert.deepStrictEqual(Object.keys(cat).sort(), Object.keys(en).sort(), f)
+    for (const k in cat) assert.strictEqual((cat[k].match(/%1/g) || []).length, (en[k].match(/%1/g) || []).length, `${f}: ${k} placeholders`)
+  }
+  const src = fs.readFileSync(path.join(root, "Widget.qml"), "utf8")
+  for (const m of src.matchAll(/strings\.t\("([^"]+)"\)/g)) assert.ok(m[1] in en, "no English string " + m[1])
+  for (const e of ["snow", "leaves", "starfall", "rain", "sakura", "fireflies"]) assert.ok("effect." + e in en, e)
+  for (const m of src.matchAll(/flag: "(\w+)"/g)) assert.ok("flag." + m[1] in en && "flag." + m[1] + ".desc" in en, m[1])
+})

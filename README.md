@@ -27,7 +27,7 @@ Omarchy ships.
 
 | | |
 |---|---|
-| Click the bar icon | Effects, amount, decorate, friends |
+| Click the bar icon | The panel: a live preview, effects, amount, the big switches, actions, friends |
 | Right-click it | Weather on or off |
 | Scroll on it | Next or previous effect |
 | Drag a decoration | Move it; drop a snowman on a window's top edge and it rides that window |
@@ -35,6 +35,16 @@ Omarchy ships.
 | Click a gift or a letter | Open it |
 | Click Santa | He drops a present |
 | Click the Yeti | He runs off without your snowman |
+
+### The panel
+
+Click the snowflake for the panel. A live preview at the top runs the real simulation in miniature (the hare drops by when it would come to your desktop), then three views:
+
+- **Scene**: the six effects as tiles, the amount, big switches for the **Snow plow**, **Snowballs**, **Santa and the Yeti** and **Little visitors** (with a line saying whether the hare can come now, and why not), and quick actions: Decorate, Shake, Plow, Santa, Hare, Freeze.
+- **World**: live weather, melting and icicles, wind from windows, spring at Nowruz, New Year fireworks, writing in the snow, theme colours, battery and calm mode.
+- **Friends**: your code, adding friends, notes, and throwing snowballs to them.
+
+The panel follows Omarchy's language setting; it ships in English and Persian (`i18n/`).
 
 ### Six kinds of weather
 
@@ -230,7 +240,7 @@ They come only when it makes sense. The scene's mode is the effect, or with the 
 | | snow, flurries | blizzard | clear | sleet, rain | spring | other effects |
 |---|---|---|---|---|---|---|
 | robin | yes | no | yes | no | yes | no |
-| hare | yes, with snow on the ground | no | no | no | brown, once the sprouts are up | no |
+| hare | yes, with snow on the ground | no | yes, with snow on the ground | no | brown, once the sprouts are up | no |
 | golden flake | yes | yes | no | no | no | no |
 
 The robin also stays away in strong wind (live weather). Nothing comes while calm mode is on, a fullscreen app is up, a window is being dragged, you're decorating, or the battery is low; when nothing can come, Flurry looks again in fifteen seconds rather than waiting out the interval. Switching calm mode on or **Surprises** off sends a robin or hare already here away (it flies off or bolts). Toggle surprises with `flurry surprises`.
@@ -350,7 +360,8 @@ hare and a frozen window (`docs/critters.png`).
 |---|---|
 | `Service.qml` | State, persistence, window and pointer feeds, visitors' schedule, friends inbox, IPC |
 | `SceneWindow.qml` | One transparent layer per screen: weather, decorations, Santa, the Yeti, the train |
-| `Widget.qml` | The bar icon and its menu |
+| `Widget.qml` | The bar icon and its panel (live preview, Scene, World, Friends) |
+| `i18n/` | The panel's strings, one JSON catalog per Omarchy language (English, Persian) |
 | `Decoration.qml`, `Visitor.qml`, `ContextMenu.qml`, `Toolbar.qml` | Pieces of the scene |
 
 Inspired by KoiArt for macOS and Windows. Flurry is an independent project;

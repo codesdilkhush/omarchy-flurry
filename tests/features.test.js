@@ -570,3 +570,28 @@ test("snowmen: new ones are bare, a click dresses them piece by piece, old ones 
   assert.deepStrictEqual(m.outfit, { nose: true, scarf: false, hat: true })
   assert.strictEqual(m.themeScarf, true)
 })
+
+test("a hare that turns about near an edge stays on the screen until it means to leave", () => {
+  // It used to turn about near the left edge, hop off and be dropped there
+  // a few seconds into its visit, so most visits were never seen.
+  for (let k = 0; k < 30; k++) {
+    const { w, r } = snowy()
+    assert.ok(S.spawnRabbit(w, { dir: 1 }))
+    w.rabbit.stay = 1e9
+    let seen = 0
+    for (let t = 0; t < 20; t += dt) {
+      S.setSurfaces(w, [r], w.time); S.step(w, dt)
+      assert.ok(w.rabbit, `gone after ${t.toFixed(1)} s, run ${k}`)
+      if (w.rabbit.x > 0 && w.rabbit.x < w.width) seen += dt
+    }
+    assert.ok(seen > 18, `on screen for ${seen.toFixed(1)} s`)
+  }
+})
+
+test("the hare comes on a clear day with snow lying, not in the rain", () => {
+  const P = load("lib/policy.js")
+  const ctx = { mode: "clear", groundCover: 0.4, groundSnow: 3, perches: 2 }
+  assert.strictEqual(P.surpriseBlock("rabbit", ctx), "")
+  assert.notStrictEqual(P.surpriseBlock("rabbit", Object.assign({}, ctx, { mode: "rain" })), "")
+  assert.notStrictEqual(P.surpriseBlock("rabbit", Object.assign({}, ctx, { groundCover: 0, groundSnow: 0 })), "")
+})
