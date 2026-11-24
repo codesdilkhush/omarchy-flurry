@@ -38,9 +38,14 @@ Item {
   // On battery (UPower, or /sys/class/power_supply when UPower has no
   // answer) the effect is halved and capped at 30 fps; below 20% it drops
   // further. Calm mode lowers it too. See Policy.gate.
-  property var sysPower: ({ known: false, onBattery: false, percent: 100 })
-  readonly property bool onBattery: UPower.onBattery || (sysPower.known && sysPower.onBattery)
-  readonly property real batteryPercent: sysPower.known ? sysPower.percent : 100
+  property var sysPower: ({ known: false, battery: false, onBattery: false, percent: 100 })
+  // UPower answers for the system battery when it has one; then there is
+  // nothing to read by hand.
+  readonly property var upowerDevice: UPower.displayDevice
+  readonly property bool upowerBattery: !!upowerDevice && !!upowerDevice.isPresent
+  readonly property bool onBattery: UPower.onBattery || (!upowerBattery && sysPower.known && sysPower.onBattery)
+  readonly property real batteryPercent: upowerBattery ? Math.max(0, Math.min(100, Number(upowerDevice.percentage) * 100 || 0))
+                                                       : (sysPower.known ? sysPower.percent : 100)
   readonly property var gate: Policy.gate({ onBattery: onBattery, percent: batteryPercent, batterySaver: saved.batterySaver,
                                             calm: calmActive, surprises: saved.surprises, fireworks: saved.newYear })
   readonly property real quality: gate.quality
@@ -104,7 +109,12 @@ Item {
     atomicWrites: true
     onLoaded: {
       var raw = null
-      try { raw = JSON.parse(text()) } catch (e) { console.warn("flurry: state.json unreadable, starting fresh") }
+      try { raw = JSON.parse(text()) } catch (e) {
+        // Keep the unreadable file beside the fresh one: it holds the
+        // friend code and everything placed, and the next save replaces it.
+        console.warn("flurry: state.json unreadable, starting fresh (kept as state.json.broken)")
+        Quickshell.execDetached(["cp", "-f", "--", stateFile.path, stateFile.path + ".broken"])
+      }
       root.saved = Store.normalize(raw)
       root.loaded = true
     }
@@ -131,6 +141,19 @@ Item {
   function unregisterScene(name, scene) {
     if (root.scenes[name] !== scene) return
     var next = Object.assign({}, root.scenes); delete next[name]; root.scenes = next
+    sceneShown(name, false)
+  }
+
+  // Which screens show a scene right now. With none (Flurry off, or a
+  // fullscreen app on every screen) the window, pointer and client feeds
+  // rest: there is nothing to draw them for.
+  property var shownScenes: ({})
+  readonly property bool showing: root.active && Object.keys(root.shownScenes).length > 0
+  function sceneShown(name, shown) {
+    if (!!root.shownScenes[name] === !!shown) return
+    var next = Object.assign({}, root.shownScenes)
+    if (shown) next[name] = true; else delete next[name]
+    root.shownScenes = next
   }
   function focusedScene() {
     var m = Hyprland.focusedMonitor
@@ -394,10 +417,13 @@ Item {
     interval: 60
     onTriggered: { if (clientsProc.running) clientsProc.again = true; else root.readClients() }
   }
+  // The window events keep the list current (clientsSoon); this read is
+  // a safety net for an event missed, and the first read when a scene
+  // shows again.
   Timer {
-    interval: 2000
+    interval: 30000
     repeat: true
-    running: root.active
+    running: root.showing
     triggeredOnStart: true
     onTriggered: if (!clientsProc.running) root.readClients()
   }
@@ -422,7 +448,9 @@ Item {
   // drops back to a slower rate.
   readonly property int fastPoll: 16
   readonly property int pointerPoll: 50
-  readonly property int idlePoll: 200
+  // With the pointer feed on, a mouse drag wakes the fast poll at once, so
+  // the idle rate only has to catch keyboard resizes.
+  readonly property int idlePoll: root.wantsPointer ? 400 : 200
   function pollInterval() {
     var now = Date.now()
     if (now - root.lastMotion < 2000) return root.fastPoll
@@ -436,7 +464,7 @@ Item {
   readonly property real windowPollGap: windowPoll.interval / 1000
   Timer {
     id: windowPoll
-    running: root.active
+    running: root.showing
     repeat: true
     interval: root.idlePoll
     onTriggered: {
@@ -506,10 +534,12 @@ Item {
     }
   }
 
+  // 20 times a second while the pointer moves; when it has rested a couple
+  // of seconds, about 7 times, which still catches it setting off at once.
   Timer {
-    running: root.wantsPointer && root.hyprSocket !== ""
+    running: root.wantsPointer && root.showing && root.hyprSocket !== ""
     repeat: true
-    interval: 50
+    interval: root.pointer.stillFor > 2 ? 150 : 50
     onTriggered: {
       if (cursorSocket.connected) cursorSocket.connected = false
       cursorSocket.connected = true
@@ -542,7 +572,7 @@ Item {
 
   Timer {
     id: santaTimer
-    running: root.active && root.saved.visitors && root.saved.effect === "snow"
+    running: root.showing && root.saved.visitors && root.saved.effect === "snow"
     // The first visit comes a few minutes after the scene starts, then every
     // eight to twenty minutes.
     interval: 60000 * (3 + Math.random() * 2)
@@ -551,7 +581,7 @@ Item {
 
   Timer {
     id: yetiTimer
-    running: root.active && root.saved.visitors && root.saved.snowmen.length > 0
+    running: root.showing && root.saved.visitors && root.saved.snowmen.length > 0
     interval: 60000 * (10 + Math.floor(Math.random() * 15))
     onTriggered: { root.summonYeti(); interval = 60000 * (10 + Math.floor(Math.random() * 15)); restart() }
   }
@@ -714,7 +744,10 @@ Item {
     id: inboxProc
     running: false
     command: root.saved.identity
-      ? ["curl", "-sS", "-N", "--no-buffer", root.saved.server + "/" + Store.topicFor(root.saved.identity.id)
+      // ntfy sends a keepalive every 45 s or so; a stream silent for three
+      // minutes (a dead connection after suspend or a network change) is
+      // dropped and reopened instead of hanging there for the session.
+      ? ["curl", "-sS", "-N", "--no-buffer", "--speed-limit", "1", "--speed-time", "180", root.saved.server + "/" + Store.topicFor(root.saved.identity.id)
          + "/json?since=" + root.saved.inboxSince]
       : ["true"]
     stdout: SplitParser {
@@ -913,7 +946,7 @@ Item {
   //
   // The Omarchy theme's palette, read from its colors.toml. Omarchy pushes a
   // theme switch to the shell, which changes qs.Commons.Color, so a change
-  // there re-reads the file; a slow timer catches anything else.
+  // there re-reads the file; the file watch catches anything else.
 
   property var theme: null
   readonly property string themePath: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
@@ -937,14 +970,14 @@ Item {
     function onAccentChanged() { themeFile.reload() }
     function onBackgroundChanged() { themeFile.reload() }
   }
-  Timer { interval: 60000; repeat: true; running: root.active && root.saved.themeSync; onTriggered: themeFile.reload() }
   readonly property bool themeOn: saved.themeSync
   onThemeOnChanged: themeFile.reload()
 
   // ---------------------------------------------------------- power
   //
-  // /sys/class/power_supply, read once a minute: a fallback for machines
-  // where UPower isn't answering, and the battery percentage.
+  // /sys/class/power_supply: a fallback for machines where UPower has no
+  // battery to report. Read once a minute only while Flurry runs and only
+  // where it found a battery (a desktop is read once and left alone).
   Process {
     id: powerProc
     command: ["sh", "-c", "for d in /sys/class/power_supply/*; do [ -e \"$d/type\" ] || continue; "
@@ -952,7 +985,13 @@ Item {
                         + "\"$(cat $d/capacity 2>/dev/null)\" \"$(cat $d/online 2>/dev/null)\"; done"]
     stdout: StdioCollector { onStreamFinished: root.sysPower = Policy.parsePowerSupply(String(text || "")) }
   }
-  Timer { interval: 60000; repeat: true; running: root.loaded; triggeredOnStart: true; onTriggered: powerProc.running = true }
+  Timer {
+    interval: 60000
+    repeat: true
+    running: root.active && !root.upowerBattery && (!root.sysPower.known || root.sysPower.battery)
+    triggeredOnStart: true
+    onTriggered: if (!powerProc.running) powerProc.running = true
+  }
 
   // ---------------------------------------------------------- calm
   property bool calmActive: false
@@ -960,9 +999,12 @@ Item {
     id: calmCheck
     interval: 30000
     repeat: true
-    running: root.loaded
+    // "off" never turns calm on, and while Flurry is off there is nothing
+    // to calm: no timer then.
+    running: root.active && root.saved.calm !== "off"
     triggeredOnStart: true
     onTriggered: root.calmActive = Policy.calmNow(root.saved.calm, root.saved.workHours, new Date())
+    onRunningChanged: if (!running) root.calmActive = Policy.calmNow(root.saved.calm, root.saved.workHours, new Date())
   }
 
   // ---------------------------------------------------------- the snow globe
@@ -1043,7 +1085,7 @@ Item {
 
   Timer {
     id: surpriseTimer
-    running: root.active && root.saved.surprises
+    running: root.showing && root.saved.surprises
     interval: Policy.planSurprise([], Date.now(), {}, Math.random, { first: true }).delay
     onRunningChanged: if (running) root.surpriseNextAt = Date.now() + interval
     onTriggered: {
@@ -1103,9 +1145,14 @@ Item {
     kind = Policy.surpriseAlias(kind)
     var scene = focusedScene()
     if (!scene || !root.active) return { here: false, why: "Flurry is off" }
-    var ctx = surpriseContextOf(scene)
-    if (ctx.offline) return { here: false, why: ctx.offline }
-    return { here: !!ctx[kind], why: Policy.surpriseBlock(kind, ctx) }
+    try {
+      var ctx = surpriseContextOf(scene)
+      if (ctx.offline) return { here: false, why: ctx.offline }
+      return { here: !!ctx[kind], why: Policy.surpriseBlock(kind, ctx) }
+    } catch (e) {
+      root.noteFault("visitor status", e)
+      return { here: false, why: "" }
+    }
   }
 
   // `flurry freeze`: the windows in view freeze now, whatever the weather.
@@ -1184,7 +1231,11 @@ Item {
   // ---------------------------------------------------------- misc
 
   function notify(title, body) {
-    Quickshell.execDetached(["notify-send", "-a", "Flurry", "-i", "weather-snow", String(title), String(body || "")])
+    // Omarchy's own notifications where they are; notify-send elsewhere.
+    Quickshell.execDetached(["sh", "-c",
+      "if command -v omarchy-notification-send >/dev/null 2>&1; then exec omarchy-notification-send --app-name Flurry -g \"$3\" \"$1\" \"$2\"; "
+      + "else exec notify-send -a Flurry -i weather-snow -- \"$1\" \"$2\"; fi",
+      "flurry-notify", String(title), String(body || ""), String.fromCodePoint(0xF0717)])
   }
 
   function status() {
