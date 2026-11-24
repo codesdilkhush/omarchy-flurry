@@ -95,8 +95,14 @@ the simulation, not an animation over it:
   turns; snow settles on the cab roof and slides off when it pulls away.
 
 It leaves once its rear is past the edge, rests at least six seconds, and
-comes back from the other side next time the snow builds up. Turn it off in
-the menu (**Snow plow**), or call it now with `flurry plow`.
+comes back from the other side next time the snow builds up.
+
+**The Snow plow switch** (in the menu, or `flurry plow on|off|toggle`) is on
+by default. Off, the plow never comes: not when the snow builds up, and not
+when called. `flurry plow` with nothing after it calls it now while the
+switch is on, and is refused with a message ("the snow plow is off") while
+it is off. Switch it off while one is out and it doesn't stop or vanish: it
+finishes its pass a little quicker, blade down, and drives off the far side.
 
 ### Snowballs
 
@@ -197,7 +203,13 @@ Hold **Ctrl** and drag across the snow to cut a groove with a lit rim. New snow 
 This is off by default. Turn it on with `flurry city <name>` or `flurry location <lat> <lon>`, and control it with `flurry weather on|off|now`. It reads Open-Meteo every 15 minutes, with no API key. Snowfall, wind direction, wind speed and temperature drive the scene. The last reading is cached for up to 3 hours, and a failed fetch backs off quietly.
 
 ### Day, thaw and icicles
-In the warm hours of the day, snow slowly settles and melts. Icicles grow along the bottom edges of snowy windows. Every so often one drips a single drop, and an icicle snaps off when its window moves. At night the snow freezes to a faint glaze that glints. Toggle with `flurry daycycle`.
+In the warm hours of the day, snow slowly settles and melts. In the cold (with live weather off, a winter night counts as about −4 °C and a winter afternoon as about +1 °C) the windows freeze:
+
+- **Icicles** grow within a minute or two on every window that has snow on top. They hang from the bottom edge when there is room under it (a floating window), and from the top edge, under the snow like eaves, when there isn't: on a tiled desktop the bottom edges sit on the next window or the ground, where nothing would show. Under the snow they stay shorter, so they never cover much of the window. In a thaw they drip a single drop at a time and shrink; a jerk of the window snaps them off, long ones first.
+- **Frost** comes in over a minute or so on cold nights and in hard cold: a thin rime along the window's top edge and feathered crystals in its two top corners, each window its own pattern. It fades in the warmth.
+- At night the lying snow freezes to a faint glaze that glints.
+
+`flurry freeze` freezes the windows in view at once, whatever the weather or the hour, to check it works (they then follow the weather as usual). Toggle the whole thing with `flurry daycycle` (**Melting, icicles, night glaze** in the menu).
 
 ### Follows your Omarchy theme
 Flurry reads `~/.local/state/omarchy/current/theme/colors.toml` and tints the window lights, the snowman's scarf and the snow's shadows to match. It updates live when you switch themes. The light strings also get a **theme** palette. Toggle with `flurry theme`.
@@ -207,7 +219,25 @@ Flurry reads `~/.local/state/omarchy/current/theme/colors.toml` and tints the wi
 - **Spring:** in the 14 days before Nowruz (the March equinox), the snow stops and thaws, green sprouts come up along the ground, and petals drift down in place of flakes. Spring lasts until Sizdah Bedar. Preview it with `flurry season spring|winter|auto`. Toggle with `flurry seasons`.
 
 ### Little surprises
-Every 6 to 16 minutes, something small happens. A bird lands on a snowy ledge, hops and pecks, and flies off when your cursor gets close or the window moves. A cat crosses the ground and leaves pawprints. Very rarely, a golden snowflake falls, and catching it unlocks a new bauble finish for the tree. Choose a finish with `flurry ornaments [style]`. Click a snowman to dress it one piece at a time: hat, carrot nose, then a scarf in your theme colour. Its outfit is remembered. To make a surprise happen now, use `flurry surprise [bird|cat|golden]`.
+The first visitor comes a minute or two after Flurry starts, then one every two and a half to five minutes, never the same one twice running unless it's the only one that can come.
+
+- **A robin** lands on a window ledge (snowy or bare, even one right under the bar), on the plow's roof, or on the ground. It hops, pecks, cocks its head, leaves tiny footprints, and flies off when your cursor comes close, its window moves, or a snowball flies near.
+- **A winter hare** (white, with black-tipped ears) hops along the ground snow: it gathers, pushes off, stretches out and lands, leaving a hare's tracks, the two long hind prints side by side ahead of the two small forefoot prints. It stops to sit up tall with its ears raised and its nose twitching, and bolts when your cursor comes close, a snowball lands near it, or the plow comes.
+- **The golden snowflake**, very rarely. Catching it unlocks a new bauble finish for the tree (`flurry ornaments [style]`).
+
+They come only when it makes sense. The scene's mode is the effect, or with the Snow effect the live weather (`snow`, `flurries`, `blizzard`, `sleet`, `rain`, `clear`; plain `snow` with live weather off), or `spring` once the thaw is well along:
+
+| | snow, flurries | blizzard | clear | sleet, rain | spring | other effects |
+|---|---|---|---|---|---|---|
+| robin | yes | no | yes | no | yes | no |
+| hare | yes, with snow on the ground | no | no | no | brown, once the sprouts are up | no |
+| golden flake | yes | yes | no | no | no | no |
+
+The robin also stays away in strong wind (live weather). Nothing comes while calm mode is on, a fullscreen app is up, a window is being dragged, you're decorating, or the battery is low; when nothing can come, Flurry looks again in fifteen seconds rather than waiting out the interval. Switching calm mode on or **Surprises** off sends a robin or hare already here away (it flies off or bolts). Toggle surprises with `flurry surprises`.
+
+`flurry surprise bird|rabbit|golden` brings one now, bypassing the timer and the weather; if the weather would normally keep it away it still comes and the reply says so (for example `rabbit (forced; normally not now: the hare comes only in snow (now rain))`). `cat` is still accepted as the hare's old name. `flurry diag` prints what each one is waiting for (see below).
+
+Click a snowman to dress it one piece at a time: hat, carrot nose, then a scarf in your theme colour. Its outfit is remembered.
 
 ### Throw a snowball to a friend
 This is opt-in. Pick a friend with `flurry throwto <friend>` and turn it on with `flurry throwing`. Throw a snowball off the edge of your screen faster than about 1150 px/s and it travels over ntfy. It flies in from the matching side of your friend's desktop and bursts on the first thing it hits.
@@ -217,6 +247,16 @@ This is opt-in. Pick a friend with `flurry throwto <friend>` and turn it on with
 - On battery it runs at 30 fps, and below 20% charge at 24 fps.
 - `flurry calm on|off|work` turns off surprises and fireworks and softens the snow. With `work`, calm mode applies only during the `workHours` set in `state.json`.
 
+### How the snow treats your windows
+- Falling snow is drawn behind windows and only settles on their top edges. It never covers what's inside a window.
+- A window's ledge snow, icicles, lights, snowmen, perched birds and resting snowballs are tied to that window's Hyprland address. When the window closes or leaves the workspace or monitor, they're released straight away: the ledge falls as loose snow and nothing is left floating.
+- `hyprctl -j clients` decides which windows exist. Flurry checks it every 2 s and after every window event, and ignores any reply that arrived before a window closed.
+- A gentle drag carries the snow. What holds it on is friction plus the bond packed snow forms with the window (together 1.6 g for fresh powder up to 2.6 g for settled snow). A drag that speeds up more gently than that keeps its ledge. Only a long, fast run blows some powder off, and only a sharp drop held for over 70 ms lifts the snow off.
+- Yank a window sideways and the snow stays where it was, like plates when a tablecloth is pulled out from under them. Flurry adds up how far the window's change in speed outruns what the snow's grip can pass on. Once that excess passes the speed at which kinetic friction (μk 0.2–0.3) would need more than 16 px to catch the snow up (about 115 px/s), the bond breaks. In practice that means going from rest to about 400–550 px/s within a tenth of a second (less for fresh powder, more for settled snow), or to 1500 px/s within a third of a second. The whole ledge comes loose in the next frame as clumps of a few sizes, each keeping its own place on screen. The window slides out from under them. A clump falls as soon as the window's edge has passed it, so the ledge drops right where it was, a column at a time. Kinetic friction only gives the snow a little of the window's speed (a couple of hundred px/s at most), so none of it is thrown. Pieces tumble, break in two and shed a little powder, and the snow's mass is kept. If the window stops while it is still under some of the snow, that snow settles back onto it. Icicles snap off where they hung, a perched bird takes off, and a snowman riding the window drops to the ground where it stood.
+- A window that moves with no pointer dragging it keeps its snow: the snow moves with it and nothing is read as a jolt. That covers a tiling relayout, a workspace switch, a keyboard move, and a window opening, closing, floating or going fullscreen. Hyprland reports no button state while you drag, so a drag is recognised by the pointer instead. It has to be moving, on the window or within a poll's travel of it, going the same way, and no layout event can have fired in the last 0.3 s. The first sample of a drag comes after the idle poll, so its speed is taken over the poll gap plus the 50 ms pointer poll. A long gap is therefore not mistaken for a huge speed, and a real yank is not mistaken for a jump. During an active drag, a big step counts as a yank even if the pointer reading lags.
+- The air a moving window stirs up eases in and out.
+- The first little surprise shows up 60 to 110 seconds after start, then one every 2.5 to 5 minutes. Icicles form within a minute or two in cold weather.
+
 ## From the terminal
 
 `bin/flurry` wraps the IPC target, handy for Hyprland binds:
@@ -225,7 +265,12 @@ This is opt-in. Pick a friend with `flurry throwto <friend>` and turn it on with
 flurry toggle | on | off | next
 flurry effect rain
 flurry intensity 1.5
-flurry decorate | santa | yeti | plow | clear
+flurry decorate | santa | yeti | clear
+flurry plow               # call the snow plow now (refused while it's switched off)
+flurry plow on|off|toggle # the Snow plow switch
+flurry surprise bird      # or rabbit, golden: one now, whatever the timer and weather
+flurry freeze             # icicles and frost on the windows in view, now
+flurry diag               # what each feature is doing and why
 flurry lights             # lights on the focused window, next colours, off
 flurry snowballs          # let snow take the pointer, or not
 flurry code               # your friend code
@@ -235,6 +280,28 @@ flurry status
 ```
 
 or directly: `omarchy-shell flurry effect sakura`.
+
+### `flurry diag`
+
+Prints JSON: the scene's mode and the weather it comes from (temperature,
+whether measured or from the calendar, season, sun, freeze), the gates
+(surprises, calm, fullscreen, decorating, battery, the plow and day-cycle
+switches), the surprise scheduler (running or not, seconds to the next try,
+the last attempt with what came or why nothing did, recent visitors, and for
+the robin, the hare and the golden flake either "can come" or the reason
+they can't), the scene (perches a bird could use, ground snow depth and
+cover, sprouts, who is on screen, whether the plow is out), the ice
+(icicle count, whether they're growing, and per window its snow depth,
+icicles, where they hang, frost and glaze), and any feature that failed.
+
+### When something breaks
+
+Each visitor, the ice, the frost, the sprouts, the fireworks, the plow and
+the snowballs are stepped and painted separately, each in its own
+try/catch. One that throws is dropped for that frame and logged once
+(`flurry: rabbit failed: …` in the shell's log, and in `flurry diag`); the
+snow and everything else keep going. Each paint also starts from a reset
+context, so nothing a failed paint left behind carries into the next.
 
 ## Performance
 
@@ -254,7 +321,7 @@ at 30 fps on their own layer and the rest of the tree only when it changes.
 ## Development
 
 ```bash
-node --test tests/*.test.js        # simulation and state tests
+node --test tests/*.test.js        # simulation, state, wiring and Qt-canvas tests
 omarchy plugin validate .
 ```
 
@@ -268,7 +335,16 @@ up until the plow comes, then renders its pass and a close-up
 (`docs/plow.png`). `tests/render-lights.js` renders a decorated tree and a
 light string being dragged (`docs/tree.png`, `docs/window-lights.png`).
 `tests/render-snowballs.js` scoops, rolls, lifts, throws, bursts and stacks
-snowballs (`docs/snowballs.png`).
+snowballs (`docs/snowballs.png`). `tests/qtcanvas.js` is a strict stand-in
+for Qt's Context2D: it throws wherever Qt does (a negative arc or gradient
+radius, a colour stop out of range or unparseable, a non-finite gradient)
+and on anything Qt doesn't have (`roundRect`, `filter`, `Path2D`, a
+browser-style `ellipse`, `multiply` instead of `qt-multiply`); every painter
+runs against it in `tests/critters.test.js`. `tests/wiring.test.js` checks
+that every library function the QML calls is imported and defined, that
+every `bin/flurry` command reaches an IPC function, and that no QML object
+declares a handler twice. `tests/render-critters.js` renders the robin, the
+hare and a frozen window (`docs/critters.png`).
 
 | File | What it is |
 |---|---|

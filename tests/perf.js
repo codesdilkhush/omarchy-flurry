@@ -66,11 +66,19 @@ rows.push(measure("writing: about 1500 marks in the ground snow", scene(w => {
 const flung = (w, i) => rects.map(r => r.id === "e" ? Object.assign({}, r, { x: 300 + 700 * Math.sin(i * 0.05) }) : r)
 rows.push(measure("wind: a window flung back and forth (gusts on)", scene(), N, flung))
 rows.push(measure("wind: the same with gusts off", scene(w => S.setFeatures(w, { gusts: false })), N, flung))
+// A yank every two seconds: window "b" pulled 2400 px/s to the left for
+// a quarter second, then put back (a jump, no pointer), and again.
+const yanked = (w, i) => rects.map(r => {
+  if (r.id !== "b") return r
+  const k = i % 120
+  return Object.assign({}, r, { x: k < 15 ? r.x - 40 * k : r.x })
+})
+rows.push(measure("yank: a snowy window pulled out from under its ledge", scene(), N, yanked))
 rows.push(measure("shake: the first 10 s after", scene(w => S.shake(w, 1)), N))
 rows.push(measure("New Year fireworks", scene(w => { S.startFireworks(w, 60); S.setEnv(w, { snowScale: 0.5 }) }), N))
 rows.push(measure("spring: petals and sprouts", scene(w => {
   S.setEnv(w, { spring: 1, petals: 1, sprouts: 1, snowScale: 0 })
   w.sprouts = S.seedSprouts(w); w.sprouts.forEach(p => { p.g = 1 })
 }), N))
-rows.push(measure("surprises: bird, cat and golden flake at once", scene(w => { S.spawnBird(w); S.spawnCat(w); S.spawnGolden(w) }), N))
+rows.push(measure("surprises: bird, hare and golden flake at once", scene(w => { S.spawnBird(w); S.spawnRabbit(w); S.spawnGolden(w) }), N))
 module.exports = rows

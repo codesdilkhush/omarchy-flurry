@@ -80,6 +80,7 @@ Item {
     if (root.flagNames.indexOf(name) < 0) return false
     update(function(s) { s[name] = !!on })
     if (name === "liveWeather" && on) weatherSoon.restart()
+    if (name === "surprises" && !on) dismissCritters()
     return true
   }
   function toggleFlag(name) { setFlag(name, !root.saved[name]); return root.saved[name] ? "on" : "off" }
@@ -135,6 +136,11 @@ Item {
     var m = Hyprland.focusedMonitor
     if (m && root.scenes[m.name]) return root.scenes[m.name]
     for (var k in root.scenes) return root.scenes[k]
+    return null
+  }
+  // The scene whose screen shows this window now, if any.
+  function sceneShowing(addr) {
+    for (var k in root.scenes) if (root.scenes[k].rectFor && root.scenes[k].rectFor(addr)) return root.scenes[k]
     return null
   }
   function sceneForPlace(place) {
@@ -290,11 +296,118 @@ Item {
   //
   // Hyprland reports no events while a window is being dragged, so the
   // scenes cannot just wait for one. While the effect is on, the toplevel
-  // list is refreshed on a timer that runs fast for a couple of seconds after
-  // anything moved and slow otherwise. A refresh is one request on
+  // list is refreshed on a timer: every frame for two seconds after any
+  // window moved, every 50 ms while the pointer moves (a drag may be
+  // starting), and every 200 ms otherwise. A refresh is one request on
   // Hyprland's socket, not a process.
+  //
+  // Which windows exist is not taken from that list alone. Quickshell
+  // re-creates a closed window's toplevel when a j/clients reply that was
+  // in flight as it closed arrives afterwards, and never drops it again; at
+  // this polling rate that happens often, and it left a ghost window that
+  // kept collecting snow in mid-air. So windows are also tracked by their
+  // address: one that closed (closewindow) is kept out at once, and every
+  // couple of seconds `hyprctl clients` says which windows really exist.
+
+  // Addresses as Hyprland's events write them: lower-case hex, no 0x.
+  function addrKey(a) {
+    var k = String(a === undefined || a === null ? "" : a).trim().toLowerCase()
+    return k.indexOf("0x") === 0 ? k.slice(2) : k
+  }
+  property var closedWindows: ({})       // address key -> when it closed (ms)
+  property var liveWindows: null         // address key -> true, from hyprctl; null until the first read
+  property int windowEpoch: 0            // bumped whenever either changes
+  function windowExists(addr) {
+    var k = addrKey(addr)
+    if (!k || root.closedWindows[k]) return false
+    return root.liveWindows === null || root.liveWindows[k] === true
+  }
+  function windowClosed(addr) {
+    var k = addrKey(addr)
+    if (!k) return
+    var next = Object.assign({}, root.closedWindows)
+    next[k] = Date.now()
+    // Keep the list short: the oldest go first, unless a ghost still has them.
+    var keys = Object.keys(next)
+    if (keys.length > 256) {
+      keys.sort(function(a, b) { return next[a] - next[b] })
+      for (var i = 0; i < keys.length - 256; i++) delete next[keys[i]]
+    }
+    root.closedWindows = next
+    if (root.liveWindows && root.liveWindows[k]) {
+      var live = Object.assign({}, root.liveWindows)
+      delete live[k]
+      root.liveWindows = live
+    }
+    root.windowEpoch++
+  }
+  function windowOpened(addr) {
+    var k = addrKey(addr)
+    if (!k) return
+    // Hyprland reuses addresses: a new window at one that closed is a new window.
+    if (root.closedWindows[k]) {
+      var next = Object.assign({}, root.closedWindows)
+      delete next[k]
+      root.closedWindows = next
+    }
+    // It exists from now on, before the next `hyprctl clients` says so.
+    if (root.liveWindows && !root.liveWindows[k]) {
+      var live = Object.assign({}, root.liveWindows)
+      live[k] = true
+      root.liveWindows = live
+    }
+    root.windowEpoch++
+  }
+
+  Process {
+    id: clientsProc
+    // Asked for again while a read was running: read once more after it,
+    // so the answer is never older than the last event.
+    property bool again: false
+    property real startedAt: 0
+    command: ["hyprctl", "-j", "clients"]
+    onExited: if (again) { again = false; root.readClients() }
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var list = null
+        try { list = JSON.parse(String(text || "")) } catch (e) { list = null }
+        if (!(list instanceof Array)) return
+        var live = {}
+        for (var i = 0; i < list.length; i++) if (list[i] && list[i].address) live[root.addrKey(list[i].address)] = true
+        // A window this says exists, that closed before this read began,
+        // is a new window at a reused address. One that closed while the
+        // read ran is closed: the reply is older than the event.
+        var closed = root.closedWindows, changed = false, nextClosed = Object.assign({}, closed)
+        for (var k in live) {
+          if (!nextClosed[k]) continue
+          if (nextClosed[k] < clientsProc.startedAt) { delete nextClosed[k]; changed = true }
+          else delete live[k]
+        }
+        if (changed) root.closedWindows = nextClosed
+        root.liveWindows = live
+        root.windowEpoch++
+      }
+    }
+  }
+  Timer {
+    id: clientsSoon
+    interval: 60
+    onTriggered: { if (clientsProc.running) clientsProc.again = true; else root.readClients() }
+  }
+  Timer {
+    interval: 2000
+    repeat: true
+    running: root.active
+    triggeredOnStart: true
+    onTriggered: if (!clientsProc.running) root.readClients()
+  }
+  function readClients() {
+    clientsProc.startedAt = Date.now()
+    clientsProc.running = true
+  }
 
   property real lastMotion: 0
+  property real lastPointerMove: 0
   function noteMotion() {
     var idle = Date.now() - root.lastMotion >= 2000
     root.lastMotion = Date.now()
@@ -306,9 +419,21 @@ Item {
   // While something moves the list is read every frame (about 60 times a
   // second), so the snow physics sees a drag as the smooth motion it is and
   // can tell a gentle drag from a jerk. Two seconds after the last change it
-  // drops back to a slow idle rate.
+  // drops back to a slower rate.
   readonly property int fastPoll: 16
-  readonly property int idlePoll: 220
+  readonly property int pointerPoll: 50
+  readonly property int idlePoll: 200
+  function pollInterval() {
+    var now = Date.now()
+    if (now - root.lastMotion < 2000) return root.fastPoll
+    if (now - root.lastPointerMove < 400) return root.pointerPoll
+    return root.idlePoll
+  }
+  // When the compositor last rearranged windows itself (ms), and the gap
+  // between window polls right now (s): the scenes tell a drag from a jump
+  // with these and the pointer.
+  property real lastLayoutEvent: 0
+  readonly property real windowPollGap: windowPoll.interval / 1000
   Timer {
     id: windowPoll
     running: root.active
@@ -316,17 +441,37 @@ Item {
     interval: root.idlePoll
     onTriggered: {
       Hyprland.refreshToplevels()
-      interval = Date.now() - root.lastMotion < 2000 ? root.fastPoll : root.idlePoll
+      interval = root.pollInterval()
     }
   }
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      switch (String(event.name)) {
+      var name = String(event.name)
+      switch (name) {
+      case "closewindow":
+        root.windowClosed(String(event.data).split(",")[0])
+        break
+      case "openwindow":
+        root.windowOpened(String(event.data).split(",")[0])
+        break
+      }
+      switch (name) {
+      // Windows rearranged by the compositor, not dragged: a move of a window
+      // right after one of these is a jump, never a yank (see Sim.dragging).
+      // Focus changes are left out: clicking a window to drag it is one.
+      case "openwindow": case "closewindow": case "movewindowv2": case "changefloatingmode":
+      case "fullscreen": case "workspacev2": case "focusedmonv2": case "moveworkspacev2":
+      case "activespecial": case "minimized":
+        root.lastLayoutEvent = Date.now()
+      }
+      switch (name) {
       case "openwindow": case "closewindow": case "movewindowv2": case "changefloatingmode":
       case "fullscreen": case "workspacev2": case "focusedmonv2": case "activewindowv2":
+      case "moveworkspacev2": case "activespecial": case "minimized":
         Hyprland.refreshToplevels()
         root.noteMotion()
+        clientsSoon.restart()
       }
     }
   }
@@ -377,6 +522,12 @@ Item {
     var dt = p.at ? Math.max(0.016, (now - p.at) / 1000) : 0.05
     var vx = (x - p.x) / dt, vy = (y - p.y) / dt
     var moved = Math.abs(x - p.x) + Math.abs(y - p.y) > 2
+    // A moving pointer may be dragging a window: poll windows faster.
+    if (moved) {
+      var wasIdle = now - root.lastPointerMove >= 400 && now - root.lastMotion >= 2000
+      root.lastPointerMove = now
+      if (wasIdle && windowPoll.running) { windowPoll.interval = root.pointerPoll; windowPoll.restart() }
+    }
     root.pointer = {
       x: x, y: y,
       vx: p.at ? p.vx * 0.4 + vx * 0.6 : 0, vy: p.at ? p.vy * 0.4 + vy * 0.6 : 0,
@@ -392,7 +543,9 @@ Item {
   Timer {
     id: santaTimer
     running: root.active && root.saved.visitors && root.saved.effect === "snow"
-    interval: 60000 * (8 + Math.floor(Math.random() * 12))
+    // The first visit comes a few minutes after the scene starts, then every
+    // eight to twenty minutes.
+    interval: 60000 * (3 + Math.random() * 2)
     onTriggered: { root.summonSanta(); interval = 60000 * (8 + Math.floor(Math.random() * 12)); restart() }
   }
 
@@ -404,9 +557,22 @@ Item {
   }
 
   // Sends the plow out on the screen in focus, snow or not.
+  // `flurry plow`: calls the plow now on the screen in focus, snow or not,
+  // while the Snow plow switch is on. Switched off, it is refused (turn it
+  // back on with `flurry plow on`). Returns what happened, in words.
   function summonPlow() {
+    if (!root.saved.plow) return "the snow plow is off (flurry plow on)"
     var scene = focusedScene()
-    return scene ? scene.callPlow() : false
+    var got = scene ? scene.callPlow() : "no screen"
+    return got === "sent" ? "on its way" : (got === "out" ? "already out" : (got === "off" ? "the snow plow is off (flurry plow on)" : got))
+  }
+  function plowCommand(mode) {
+    mode = String(mode || "").trim().toLowerCase()
+    if (mode === "" || mode === "now" || mode === "call") return summonPlow()
+    if (mode === "on" || mode === "off") { setPlow(mode === "on"); return mode }
+    if (mode === "toggle") { setPlow(!root.saved.plow); return root.saved.plow ? "on" : "off" }
+    if (mode === "status") return root.saved.plow ? "on" : "off"
+    return "plow: on, off, toggle, or nothing to call it now"
   }
 
   function summonSanta() {
@@ -627,7 +793,7 @@ Item {
     onTriggered: { stamp = Date.now(); root.computeEnv() }
   }
   onWeatherNowChanged: computeEnv()
-  onCalmActiveChanged: computeEnv()
+  onCalmActiveChanged: { computeEnv(); if (root.calmActive) dismissCritters() }
   onSavedChanged: if (root.loaded) root.computeEnv()
 
   // `flurry season spring` previews the thaw: the snow eases off and melts,
@@ -841,30 +1007,125 @@ Item {
 
   // ---------------------------------------------------------- surprises
   //
-  // Now and then a bird, a cat or (rarely) the golden snowflake, chosen in
-  // Policy so the same one rarely comes twice running. Only while it snows,
-  // never in calm mode, fullscreen, decorate mode or on a low battery.
+  // Now and then a robin, a winter hare or (rarely) the golden snowflake,
+  // chosen in Policy: each only where it makes sense (the hare only in
+  // snow, the robin not in a blizzard...), never the same visitor twice
+  // running, and never while calm mode is on, a fullscreen app is up, a
+  // window is being dragged or Flurry is being decorated. The scheduler
+  // runs whenever Flurry does; when nothing can come it looks again in
+  // fifteen seconds instead of waiting out the interval, and it keeps why
+  // for `flurry diag`.
 
   property var surpriseHistory: []
+  property real surpriseNextAt: 0
+  property var surpriseLast: null          // { at, kind, result, why, manual }
+  property var serviceFaults: ({})
+  function noteFault(name, e) {
+    if (root.serviceFaults[name]) return
+    var next = Object.assign({}, root.serviceFaults)
+    next[name] = { message: String(e && e.message ? e.message : e), at: new Date().toISOString() }
+    root.serviceFaults = next
+    console.warn("flurry: " + name + " failed: " + next[name].message)
+  }
+
+  readonly property string weatherKind: root.weatherNow && root.weatherNow.kind ? root.weatherNow.kind : ""
+  readonly property string sceneMode: Policy.sceneMode(root.saved.effect, root.env, root.weatherKind)
+
+  function surpriseContextOf(scene) {
+    var c = scene ? scene.surpriseContext() : { offline: "no screen" }
+    c.mode = root.sceneMode
+    c.surprises = root.saved.surprises
+    c.calm = root.calmActive
+    c.lowPower = root.gate.quality < 0.5
+    c.decorating = root.decorating !== ""
+    return c
+  }
+
   Timer {
     id: surpriseTimer
-    running: root.active && root.gate.surprises && root.saved.effect === "snow" && root.decorating === ""
-    interval: Policy.planSurprise([], Date.now(), {}).delay
+    running: root.active && root.saved.surprises
+    interval: Policy.planSurprise([], Date.now(), {}, Math.random, { first: true }).delay
+    onRunningChanged: if (running) root.surpriseNextAt = Date.now() + interval
     onTriggered: {
-      root.surpriseNow("")
-      interval = Policy.planSurprise(root.surpriseHistory, Date.now(), {}).delay
+      var came = false
+      try { came = root.surpriseAttempt("", false).came } catch (e) { root.noteFault("surprise scheduler", e) }
+      interval = Policy.planSurprise(root.surpriseHistory, Date.now(), {}, Math.random, { missed: !came }).delay
+      root.surpriseNextAt = Date.now() + interval
       restart()
     }
   }
+
+  // One try: picks what may come (or takes `kind`), checks it may, and
+  // sends it. A manual call (`flurry surprise rabbit`) skips the timing and
+  // the surprises switch but not the sense: no hare in the rain.
+  function surpriseAttempt(kind, manual) {
+    var scene = focusedScene()
+    var res = { at: new Date().toISOString(), kind: "", came: false, why: "", manual: !!manual }
+    if (!scene || !root.active) { res.why = "no screen"; root.surpriseLast = res; return res }
+    var ctx = surpriseContextOf(scene)
+    if (ctx.offline) { res.why = ctx.offline; root.surpriseLast = res; return res }
+    if (manual) { ctx.surprises = true; ctx.dragging = false; ctx.calm = false; ctx.decorating = false; ctx.lowPower = false }
+    kind = Policy.surpriseAlias(kind)
+    if (kind) {
+      // Named: it comes now, bypassing the timer, the weather and the
+      // season; what would normally keep it away is said as a warning.
+      res.kind = kind
+      res.warning = Policy.surpriseBlock(kind, ctx)
+    } else {
+      kind = Policy.pickSurprise(root.surpriseHistory, Date.now(), ctx)
+      res.kind = kind
+      if (!kind) {
+        var opt = Policy.surpriseOptions(root.surpriseHistory, Date.now(), ctx)
+        res.why = "bird: " + (opt.bird || "ok") + "; rabbit: " + (opt.rabbit || "ok")
+      }
+    }
+    if (kind && !res.why) {
+      if (scene.surprise(kind, !!manual)) {
+        res.came = true
+        root.surpriseHistory = Policy.remember(root.surpriseHistory, kind, Date.now())
+      } else res.why = kind === "bird" ? "a bird is already here, or nowhere to land" : (kind === "rabbit" ? "a hare is already here" : "already falling")
+    }
+    root.surpriseLast = res
+    return res
+  }
   function surpriseNow(kind) {
+    var known = ["", "bird", "rabbit", "golden"]
+    if (known.indexOf(Policy.surpriseAlias(kind)) < 0) return "surprise: bird, rabbit or golden"
+    var r = surpriseAttempt(kind, true)
+    if (r.came) return r.kind + (r.warning ? " (forced; normally not now: " + r.warning + ")" : "")
+    return (r.kind ? r.kind + ": " : "") + (r.why || "nothing can come now")
+  }
+
+  // `flurry freeze`: the windows in view freeze now, whatever the weather.
+  function freezeNow() {
     var scene = focusedScene()
     if (!scene || !root.active) return "no screen"
-    var ctx = scene.surpriseContext()
-    kind = String(kind || "") || Policy.pickSurprise(root.surpriseHistory, Date.now(), ctx)
-    if (!kind) return "nothing can come now"
-    if (!scene.surprise(kind)) return "no room for a " + kind + " now"
-    root.surpriseHistory = Policy.remember(root.surpriseHistory, kind, Date.now())
-    return kind
+    var n = scene.freeze()
+    if (n < 0) return "not showing now (Flurry off or a fullscreen app)"
+    return n + " icicles" + (root.saved.dayCycle ? "" : " (Melting, icicles, night glaze is off: they will not grow back)")
+            + (root.saved.effect === "snow" ? "" : " (not snowing: they will melt)")
+  }
+
+  // Calm mode on, or surprises off: the robin and the hare leave now.
+  function dismissCritters() { for (var k in root.scenes) root.scenes[k].dismissCritters() }
+  // (calm mode coming on also sends the visitors away: see onCalmActiveChanged above)
+
+  // `flurry diag`: the state of each feature and why it is (or isn't) on.
+  function diag() {
+    var scene = focusedScene()
+    var faults = {}
+    for (var k in root.serviceFaults) faults["service:" + k] = root.serviceFaults[k]
+    var sf = scene ? scene.faults() : {}
+    for (var j in sf) faults[j] = sf[j]
+    return JSON.stringify(Policy.diagReport({
+      now: Date.now(), mode: root.sceneMode, env: root.env, history: root.surpriseHistory, last: root.surpriseLast,
+      weather: { live: root.saved.liveWeather, kind: root.weatherKind },
+      gates: { enabled: root.saved.enabled, effect: root.saved.effect, surprises: root.saved.surprises, calm: root.calmActive,
+               calmMode: root.saved.calm, decorating: root.decorating, onBattery: root.onBattery, quality: root.quality,
+               dayCycle: root.saved.dayCycle, plow: root.saved.plow, fullscreen: scene ? scene.fullscreenApp : false },
+      timer: { running: surpriseTimer.running, nextAt: root.surpriseNextAt },
+      ctx: surpriseContextOf(scene), faults: faults
+    }), null, 1)
   }
 
   // ---------------------------------------------------------- snowballs to friends
@@ -926,7 +1187,8 @@ Item {
                                            current: root.saved.weatherCache.current } : null,
       calm: root.calmActive, onBattery: root.onBattery, battery: root.batteryPercent, fps: root.fpsCap,
       theme: root.theme ? root.theme.source : "off", ornamentStyle: root.saved.ornamentStyle,
-      ornamentStyles: root.saved.ornamentStyles, preview: root.seasonOverride
+      ornamentStyles: root.saved.ornamentStyles, preview: root.seasonOverride,
+      windows: { live: root.liveWindows ? Object.keys(root.liveWindows).length : -1, closed: Object.keys(root.closedWindows).length }
     })
   }
 
@@ -942,7 +1204,7 @@ Item {
     function decorate(): string { root.decorating ? root.stopDecorating() : root.startDecorating(); return root.decorating ? "decorating" : "done" }
     function santa(): string { return root.summonSanta() ? "ho ho ho" : "no screen" }
     function lights(): string { return root.focusedLights() }
-    function plow(): string { return root.summonPlow() ? "on its way" : "already out" }
+    function plow(mode: string): string { return root.plowCommand(mode) }
     function snowballs(): string { root.setSnowballs(!root.saved.snowballs); return root.saved.snowballs ? "on" : "off" }
     function yeti(): string { return root.summonYeti() ? "grr" : "no screen" }
     function clear(): string { root.clearDecorations(); return "ok" }
@@ -967,6 +1229,8 @@ Item {
     function location(lat: string, lon: string): string { return root.setWeatherLocation(lat, lon) ? "ok" : "invalid coordinates" }
     function calm(mode: string): string { return root.setCalm(mode) ? root.saved.calm : "calm: off, on or work" }
     function surprise(kind: string): string { return root.surpriseNow(kind) }
+    function diag(): string { return root.diag() }
+    function freeze(): string { return root.freezeNow() }
     function ornaments(style: string): string {
       if (style === "" || style === "next") return root.nextOrnamentStyle()
       return root.setOrnamentStyle(style) ? style : "locked (catch a golden snowflake): " + style

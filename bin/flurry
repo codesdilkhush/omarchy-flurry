@@ -1,7 +1,7 @@
 #!/bin/bash
 # flurry: drive the Flurry plugin from a terminal or a Hyprland bind.
-#   flurry [toggle|on|off|next|effect <name>|intensity <0.25-2>|decorate|santa|yeti|plow|lights|snowballs|
-#           shake|fireworks [seconds]|season <auto|winter|spring>|surprise [bird|cat|golden]|
+#   flurry [toggle|on|off|next|effect <name>|intensity <0.25-2>|decorate|santa|yeti|plow [on|off|toggle]|lights|snowballs|
+#           shake|fireworks [seconds]|season <auto|winter|spring>|surprise [bird|rabbit|golden]|diag|freeze|
 #           weather [on|off|now|status]|city <name>|location <lat> <lon>|calm <off|on|work>|
 #           ornaments [style|next]|throwto <friend>|
 #           gusts|writing|daycycle|seasons|newyear|surprises|theme|throwing|
@@ -10,12 +10,13 @@ set -euo pipefail
 call() { omarchy-shell flurry "$@"; }
 cmd=${1:-toggle}; shift || true
 case $cmd in
-  toggle|on|off|next|decorate|santa|yeti|plow|lights|snowballs|status|clear|shake) call "$cmd" ;;
+  toggle|on|off|next|decorate|santa|yeti|lights|snowballs|status|clear|shake|diag|freeze) call "$cmd" ;;
+  plow) call plow "${1:-}" ;;
   effect) call effect "${1:?snow|leaves|starfall|rain|sakura|fireflies}" ;;
   intensity) call intensity "${1:?0.25 to 2}" ;;
   fireworks) call fireworks "${1:-60}" ;;
   season) call season "${1:?auto|winter|spring}" ;;
-  surprise) call surprise "${1:-}" ;;
+  surprise) call surprise "${1:-}" ;;   # cat is accepted as the old name of rabbit
   weather) call weather "${1:-status}" ;;
   city) call city "${*:?city name}" ;;
   location) call location "${1:?latitude}" "${2:?longitude}" ;;

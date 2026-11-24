@@ -151,7 +151,7 @@ BarWidget {
       }
       RowLayout {
         Layout.fillWidth: true
-        Text { Layout.fillWidth: true; text: "Snow plow"; color: Commons.Color.popups.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
+        Text { Layout.fillWidth: true; text: "Snow plow (clears deep ground snow)"; color: Commons.Color.popups.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
         ToggleSwitch { checked: root.service ? root.service.saved.plow : true; onToggled: root.service.setPlow(!checked) }
       }
       RowLayout {
@@ -190,7 +190,7 @@ BarWidget {
       FlagRow { svc: root.service; flag: "dayCycle"; label: "Melting, icicles, night glaze" }
       FlagRow { svc: root.service; flag: "seasons"; label: "Spring at Nowruz" }
       FlagRow { svc: root.service; flag: "newYear"; label: "New Year fireworks" }
-      FlagRow { svc: root.service; flag: "surprises"; label: "Birds, a cat, a golden flake" }
+      FlagRow { svc: root.service; flag: "surprises"; label: "A robin, a hare, a golden flake" }
       FlagRow { svc: root.service; flag: "windGusts"; label: "Wind from moving windows" }
       FlagRow { svc: root.service; flag: "writing"; label: "Write in snow (Ctrl+drag)" }
       FlagRow { svc: root.service; flag: "themeSync"; label: "Theme colours" }
