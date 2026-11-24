@@ -350,7 +350,7 @@ test("fireworks: shells rise, burst into embers near the top, and the show ends"
 
 test("a bird lands on a snowy ledge, leaves footprints, and flies off when the pointer comes near", () => {
   const { w, r } = snowy()
-  assert.ok(S.spawnBird(w))
+  assert.ok(S.spawnBird(w, { surface: "a" }))
   run(w, 3, [r])
   assert.strictEqual(w.bird.mode, "perch")
   const s = w.surfaces.a
@@ -362,35 +362,75 @@ test("a bird lands on a snowy ledge, leaves footprints, and flies off when the p
   assert.strictEqual(w.bird, null, "gone")
 })
 
-test("a perched bird flies off when its window moves; a bare ledge will do, no ledge at all brings none", () => {
+test("a perched bird flies off when its window moves; a bare ledge will do, with no window the ground", () => {
   const { w, r } = snowy()
-  S.spawnBird(w)
+  S.spawnBird(w, { surface: "a" })
   run(w, 3, [r])
   let x = r.x
   for (let t = 0; t < 0.3; t += dt) { x += 300 * dt; S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
   assert.strictEqual(w.bird.mode, "out")
   const bare = S.createWorld(1600, 1000, { plow: false })
   S.setSurfaces(bare, [r], 0)
-  assert.ok(S.spawnBird(bare), "a bare window top is a perch too")
+  assert.ok(S.spawnBird(bare, { surface: "a" }), "a bare window top is a perch too")
   const none = S.createWorld(1600, 1000, { plow: false })
-  assert.ok(!S.spawnBird(none), "no window, no perch")
+  assert.ok(S.spawnBird(none), "no window: the ground will do")
+  assert.strictEqual(none.bird.s, S.GROUND_ID)
 })
 
-test("a cat walks across the ground, leaving pawprints in snow", () => {
+test("a hare hops across the ground snow, leaving paired hind and fore prints", () => {
   const { w, r } = snowy()
-  assert.ok(S.spawnCat(w))
-  w.cat.sat = true
-  run(w, 10, [r])
-  const prints = w.surfaces.__ground.marks.filter(m => m.t === 1)
-  assert.ok(prints.length > 20, `prints: ${prints.length}`)
-  run(w, 40, [r])
-  assert.strictEqual(w.cat, null, "walked off")
-  // On bare ground it still comes by, and leaves no prints.
+  assert.ok(S.spawnRabbit(w, { dir: 1 }))
+  w.rabbit.stay = 1e9
+  run(w, 12, [r])
+  const marks = w.surfaces.__ground.marks || []
+  const hind = marks.filter(m => m.t === 3).length, fore = marks.filter(m => m.t === 1).length
+  assert.ok(hind >= 8 && fore >= 8, `hind ${hind}, fore ${fore}`)
+  assert.ok(Math.abs(hind - fore) <= 4, "in pairs")
+  assert.ok(w.rabbit && w.rabbit.x > 40, "on its way across")
+  // It bolts from the pointer, and is gone soon after.
+  const R = w.rabbit
+  run(w, 0.1, [r], () => ({ pointer: { x: R.x + 40, y: 1000 - 20, vx: 0, vy: 0, present: true } }))
+  assert.strictEqual(w.rabbit.mode, "bolt")
+  assert.strictEqual(w.rabbit.dir, -1, "away from the pointer")
+  run(w, 8, [r])
+  assert.strictEqual(w.rabbit, null, "gone")
+  // On bare ground it leaves no prints.
   const bare = S.createWorld(1600, 1000, { plow: false })
-  assert.ok(S.spawnCat(bare), "a cat crosses bare ground too")
-  bare.cat.sat = true
+  assert.ok(S.spawnRabbit(bare, { coat: "brown" }))
+  assert.strictEqual(bare.rabbit.coat, "brown")
   run(bare, 5, [])
   assert.ok(!(bare.surfaces.__ground.marks || []).length, "no prints without snow")
+})
+
+test("a hare sits up now and then, ears raised, and bolts when a snowball lands near it", () => {
+  const { w, r } = snowy()
+  S.spawnRabbit(w, { dir: 1 })
+  w.rabbit.stay = 1e9
+  let sat = 0
+  for (let i = 0; i < 40 * 60 && w.rabbit; i++) {
+    S.setSurfaces(w, [r], w.time); S.step(w, dt)
+    if (w.rabbit && w.rabbit.up > 0.9 && w.rabbit.ears > 0.9) sat++
+  }
+  assert.ok(sat > 30, `sat up for ${sat} frames`)
+  const w2 = snowy().w
+  S.spawnRabbit(w2, { dir: 1 })
+  run(w2, 3, [r])
+  w2.thud = { x: w2.rabbit.x + 60, y: 990, t: w2.time }
+  run(w2, 0.05, [r])
+  assert.strictEqual(w2.rabbit.mode, "bolt")
+})
+
+test("switched off (or calm), visitors leave gracefully: the bird flies, the hare bolts", () => {
+  const { w, r } = snowy()
+  S.spawnBird(w); S.spawnRabbit(w)
+  run(w, 3, [r])
+  assert.strictEqual(w.bird.mode, "perch")
+  assert.ok(S.dismissCritters(w))
+  assert.strictEqual(w.bird.mode, "out")
+  assert.strictEqual(w.rabbit.mode, "bolt")
+  run(w, 10, [r])
+  assert.strictEqual(w.bird, null)
+  assert.strictEqual(w.rabbit, null)
 })
 
 test("the golden snowflake falls slowly; caught, it tells the shell once", () => {

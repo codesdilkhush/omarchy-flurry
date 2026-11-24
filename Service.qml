@@ -80,6 +80,7 @@ Item {
     if (root.flagNames.indexOf(name) < 0) return false
     update(function(s) { s[name] = !!on })
     if (name === "liveWeather" && on) weatherSoon.restart()
+    if (name === "surprises" && !on) dismissCritters()
     return true
   }
   function toggleFlag(name) { setFlag(name, !root.saved[name]); return root.saved[name] ? "on" : "off" }
@@ -556,9 +557,22 @@ Item {
   }
 
   // Sends the plow out on the screen in focus, snow or not.
+  // `flurry plow`: calls the plow now on the screen in focus, snow or not,
+  // while the Snow plow switch is on. Switched off, it is refused (turn it
+  // back on with `flurry plow on`). Returns what happened, in words.
   function summonPlow() {
+    if (!root.saved.plow) return "the snow plow is off (flurry plow on)"
     var scene = focusedScene()
-    return scene ? scene.callPlow() : false
+    var got = scene ? scene.callPlow() : "no screen"
+    return got === "sent" ? "on its way" : (got === "out" ? "already out" : (got === "off" ? "the snow plow is off (flurry plow on)" : got))
+  }
+  function plowCommand(mode) {
+    mode = String(mode || "").trim().toLowerCase()
+    if (mode === "" || mode === "now" || mode === "call") return summonPlow()
+    if (mode === "on" || mode === "off") { setPlow(mode === "on"); return mode }
+    if (mode === "toggle") { setPlow(!root.saved.plow); return root.saved.plow ? "on" : "off" }
+    if (mode === "status") return root.saved.plow ? "on" : "off"
+    return "plow: on, off, toggle, or nothing to call it now"
   }
 
   function summonSanta() {
@@ -993,33 +1007,125 @@ Item {
 
   // ---------------------------------------------------------- surprises
   //
-  // Now and then a bird, a cat or (rarely) the golden snowflake, chosen in
-  // Policy so the same one rarely comes twice running. Only while it snows,
-  // never in calm mode, fullscreen, decorate mode or on a low battery.
+  // Now and then a robin, a winter hare or (rarely) the golden snowflake,
+  // chosen in Policy: each only where it makes sense (the hare only in
+  // snow, the robin not in a blizzard...), never the same visitor twice
+  // running, and never while calm mode is on, a fullscreen app is up, a
+  // window is being dragged or Flurry is being decorated. The scheduler
+  // runs whenever Flurry does; when nothing can come it looks again in
+  // fifteen seconds instead of waiting out the interval, and it keeps why
+  // for `flurry diag`.
 
   property var surpriseHistory: []
-  // The first comes a minute or so after the scene starts; when nothing
-  // could come it looks again soon instead of minutes later.
+  property real surpriseNextAt: 0
+  property var surpriseLast: null          // { at, kind, result, why, manual }
+  property var serviceFaults: ({})
+  function noteFault(name, e) {
+    if (root.serviceFaults[name]) return
+    var next = Object.assign({}, root.serviceFaults)
+    next[name] = { message: String(e && e.message ? e.message : e), at: new Date().toISOString() }
+    root.serviceFaults = next
+    console.warn("flurry: " + name + " failed: " + next[name].message)
+  }
+
+  readonly property string weatherKind: root.weatherNow && root.weatherNow.kind ? root.weatherNow.kind : ""
+  readonly property string sceneMode: Policy.sceneMode(root.saved.effect, root.env, root.weatherKind)
+
+  function surpriseContextOf(scene) {
+    var c = scene ? scene.surpriseContext() : { offline: "no screen" }
+    c.mode = root.sceneMode
+    c.surprises = root.saved.surprises
+    c.calm = root.calmActive
+    c.lowPower = root.gate.quality < 0.5
+    c.decorating = root.decorating !== ""
+    return c
+  }
+
   Timer {
     id: surpriseTimer
-    running: root.active && root.gate.surprises && root.saved.effect === "snow" && root.decorating === ""
+    running: root.active && root.saved.surprises
     interval: Policy.planSurprise([], Date.now(), {}, Math.random, { first: true }).delay
+    onRunningChanged: if (running) root.surpriseNextAt = Date.now() + interval
     onTriggered: {
-      var got = root.surpriseNow("")
-      var came = got === "bird" || got === "cat" || got === "golden"
+      var came = false
+      try { came = root.surpriseAttempt("", false).came } catch (e) { root.noteFault("surprise scheduler", e) }
       interval = Policy.planSurprise(root.surpriseHistory, Date.now(), {}, Math.random, { missed: !came }).delay
+      root.surpriseNextAt = Date.now() + interval
       restart()
     }
   }
+
+  // One try: picks what may come (or takes `kind`), checks it may, and
+  // sends it. A manual call (`flurry surprise rabbit`) skips the timing and
+  // the surprises switch but not the sense: no hare in the rain.
+  function surpriseAttempt(kind, manual) {
+    var scene = focusedScene()
+    var res = { at: new Date().toISOString(), kind: "", came: false, why: "", manual: !!manual }
+    if (!scene || !root.active) { res.why = "no screen"; root.surpriseLast = res; return res }
+    var ctx = surpriseContextOf(scene)
+    if (ctx.offline) { res.why = ctx.offline; root.surpriseLast = res; return res }
+    if (manual) { ctx.surprises = true; ctx.dragging = false; ctx.calm = false; ctx.decorating = false; ctx.lowPower = false }
+    kind = Policy.surpriseAlias(kind)
+    if (kind) {
+      // Named: it comes now, bypassing the timer, the weather and the
+      // season; what would normally keep it away is said as a warning.
+      res.kind = kind
+      res.warning = Policy.surpriseBlock(kind, ctx)
+    } else {
+      kind = Policy.pickSurprise(root.surpriseHistory, Date.now(), ctx)
+      res.kind = kind
+      if (!kind) {
+        var opt = Policy.surpriseOptions(root.surpriseHistory, Date.now(), ctx)
+        res.why = "bird: " + (opt.bird || "ok") + "; rabbit: " + (opt.rabbit || "ok")
+      }
+    }
+    if (kind && !res.why) {
+      if (scene.surprise(kind, !!manual)) {
+        res.came = true
+        root.surpriseHistory = Policy.remember(root.surpriseHistory, kind, Date.now())
+      } else res.why = kind === "bird" ? "a bird is already here, or nowhere to land" : (kind === "rabbit" ? "a hare is already here" : "already falling")
+    }
+    root.surpriseLast = res
+    return res
+  }
   function surpriseNow(kind) {
+    var known = ["", "bird", "rabbit", "golden"]
+    if (known.indexOf(Policy.surpriseAlias(kind)) < 0) return "surprise: bird, rabbit or golden"
+    var r = surpriseAttempt(kind, true)
+    if (r.came) return r.kind + (r.warning ? " (forced; normally not now: " + r.warning + ")" : "")
+    return (r.kind ? r.kind + ": " : "") + (r.why || "nothing can come now")
+  }
+
+  // `flurry freeze`: the windows in view freeze now, whatever the weather.
+  function freezeNow() {
     var scene = focusedScene()
     if (!scene || !root.active) return "no screen"
-    var ctx = scene.surpriseContext()
-    kind = String(kind || "") || Policy.pickSurprise(root.surpriseHistory, Date.now(), ctx)
-    if (!kind) return "nothing can come now"
-    if (!scene.surprise(kind)) return "no room for a " + kind + " now"
-    root.surpriseHistory = Policy.remember(root.surpriseHistory, kind, Date.now())
-    return kind
+    var n = scene.freeze()
+    if (n < 0) return "not showing now (Flurry off or a fullscreen app)"
+    return n + " icicles" + (root.saved.dayCycle ? "" : " (Melting, icicles, night glaze is off: they will not grow back)")
+            + (root.saved.effect === "snow" ? "" : " (not snowing: they will melt)")
+  }
+
+  // Calm mode on, or surprises off: the robin and the hare leave now.
+  function dismissCritters() { for (var k in root.scenes) root.scenes[k].dismissCritters() }
+  onCalmActiveChanged: if (root.calmActive) dismissCritters()
+
+  // `flurry diag`: the state of each feature and why it is (or isn't) on.
+  function diag() {
+    var scene = focusedScene()
+    var faults = {}
+    for (var k in root.serviceFaults) faults["service:" + k] = root.serviceFaults[k]
+    var sf = scene ? scene.faults() : {}
+    for (var j in sf) faults[j] = sf[j]
+    return JSON.stringify(Policy.diagReport({
+      now: Date.now(), mode: root.sceneMode, env: root.env, history: root.surpriseHistory, last: root.surpriseLast,
+      weather: { live: root.saved.liveWeather, kind: root.weatherKind },
+      gates: { enabled: root.saved.enabled, effect: root.saved.effect, surprises: root.saved.surprises, calm: root.calmActive,
+               calmMode: root.saved.calm, decorating: root.decorating, onBattery: root.onBattery, quality: root.quality,
+               dayCycle: root.saved.dayCycle, plow: root.saved.plow, fullscreen: scene ? scene.fullscreenApp : false },
+      timer: { running: surpriseTimer.running, nextAt: root.surpriseNextAt },
+      ctx: surpriseContextOf(scene), faults: faults
+    }), null, 1)
   }
 
   // ---------------------------------------------------------- snowballs to friends
@@ -1098,7 +1204,7 @@ Item {
     function decorate(): string { root.decorating ? root.stopDecorating() : root.startDecorating(); return root.decorating ? "decorating" : "done" }
     function santa(): string { return root.summonSanta() ? "ho ho ho" : "no screen" }
     function lights(): string { return root.focusedLights() }
-    function plow(): string { return root.summonPlow() ? "on its way" : "already out" }
+    function plow(mode: string): string { return root.plowCommand(mode) }
     function snowballs(): string { root.setSnowballs(!root.saved.snowballs); return root.saved.snowballs ? "on" : "off" }
     function yeti(): string { return root.summonYeti() ? "grr" : "no screen" }
     function clear(): string { root.clearDecorations(); return "ok" }
@@ -1123,6 +1229,8 @@ Item {
     function location(lat: string, lon: string): string { return root.setWeatherLocation(lat, lon) ? "ok" : "invalid coordinates" }
     function calm(mode: string): string { return root.setCalm(mode) ? root.saved.calm : "calm: off, on or work" }
     function surprise(kind: string): string { return root.surpriseNow(kind) }
+    function diag(): string { return root.diag() }
+    function freeze(): string { return root.freezeNow() }
     function ornaments(style: string): string {
       if (style === "" || style === "next") return root.nextOrnamentStyle()
       return root.setOrnamentStyle(style) ? style : "locked (catch a golden snowflake): " + style

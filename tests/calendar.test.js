@@ -232,33 +232,76 @@ test("calm mode: on, off, or only within working hours", () => {
   assert.ok(!Policy.inHours(wed10, { start: "bad", end: "17:00" }))
 })
 
-test("surprises: spaced out, rarely the same twice running, golden very rare, only what the scene can host", () => {
+test("surprises: the first within two minutes, then every few; never the same visitor twice running; golden rare", () => {
   let seed = 7
   const rng = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
-  const ctx = { snowyWindow: true, groundSnow: true, snowing: true }
-  let history = [], now = 0, repeats = 0, golden = 0, counts = { bird: 0, cat: 0, golden: 0 }
-  // The first one comes within a minute or two of starting.
+  const ctx = { mode: "snow", perches: 5, groundSnow: 3, groundCover: 0.6 }
   const first = Policy.planSurprise([], 0, ctx, rng, { first: true })
-  assert.ok(first.delay >= 45000 && first.delay <= 100000, String(first.delay))
-  // Nothing could come: look again soon.
-  assert.strictEqual(Policy.planSurprise([{ kind: "bird", at: 0 }], 1000, ctx, rng, { missed: true }).delay, 25000)
-  history = [{ kind: "bird", at: 0 }]
+  assert.ok(first.delay >= 60000 && first.delay <= 110000, String(first.delay))
+  // Nothing could come: look again soon, not in minutes.
+  assert.strictEqual(Policy.planSurprise([{ kind: "bird", at: 0 }], 1000, ctx, rng, { missed: true }).delay, 15000)
+  let history = [{ kind: "bird", at: 0 }], now = 0, repeats = 0
+  const counts = { bird: 0, rabbit: 0, golden: 0 }
   for (let i = 0; i < 2000; i++) {
     const plan = Policy.planSurprise(history, now, ctx, rng)
-    assert.ok(plan.delay >= 3 * 60000 && plan.delay <= 7 * 60000, String(plan.delay))
+    assert.ok(plan.delay >= 2.5 * 60000 && plan.delay <= 5 * 60000, String(plan.delay))
     now += plan.delay
     const kind = Policy.pickSurprise(history, now, ctx, rng)
-    if (history.length && history[history.length - 1].kind === kind) repeats++
+    const last = history[history.length - 1].kind
+    if ((kind === "bird" || kind === "rabbit") && last === kind) repeats++
     counts[kind]++
     history = Policy.remember(history, kind, now)
   }
-  assert.ok(repeats / 2000 < 0.12, `repeats ${repeats}`)
+  assert.strictEqual(repeats, 0, "never the same visitor twice running while the other can come")
   assert.ok(counts.golden > 0 && counts.golden / 2000 < 0.06, `golden ${counts.golden}`)
-  assert.ok(counts.bird > 600 && counts.cat > 600, JSON.stringify(counts))
+  assert.ok(counts.bird > 700 && counts.rabbit > 700, JSON.stringify(counts))
   assert.ok(history.length <= 8)
+  // Only one can come: it may repeat.
+  const birdOnly = Object.assign({}, ctx, { groundSnow: 0, groundCover: 0 })
+  assert.strictEqual(Policy.pickSurprise([{ kind: "bird", at: 0 }], 1, birdOnly, () => 0.5), "bird")
   // Never two golden flakes within the gap.
   assert.strictEqual(Policy.surpriseWeights([{ kind: "golden", at: 1000 }], 1000 + 20 * 60000, ctx).golden, 0)
-  // Nothing to land on, nothing comes.
-  assert.strictEqual(Policy.pickSurprise([], 0, { snowyWindow: false, groundSnow: false, snowing: false }, rng), "")
-  assert.strictEqual(Policy.pickSurprise([], 0, { snowyWindow: true }, rng), "bird")
+  // Nothing to land on and no snow on the ground: nothing comes.
+  assert.strictEqual(Policy.pickSurprise([], 0, { mode: "rain", perches: 0 }, rng), "")
 })
+
+test("visitors follow the weather: the hare only in snow, the robin not in a blizzard, rain or strong wind", () => {
+  const base = { perches: 4, groundSnow: 3, groundCover: 0.5, sprouts: 0 }
+  const at = (kind, extra) => Policy.surpriseBlock(kind, Object.assign({}, base, extra))
+  assert.strictEqual(at("rabbit", { mode: "snow" }), "")
+  assert.strictEqual(at("rabbit", { mode: "flurries" }), "")
+  for (const m of ["blizzard", "rain", "sleet", "clear", "leaves", "starfall", "sakura", "fireflies"])
+    assert.ok(at("rabbit", { mode: m }), "no hare in " + m)
+  assert.ok(at("rabbit", { mode: "snow", groundSnow: 0, groundCover: 0 }), "needs snow on the ground")
+  assert.ok(at("rabbit", { mode: "snow", plow: true }), "not with the plow out")
+  assert.ok(at("rabbit", { mode: "spring" }), "spring: not before the sprouts")
+  assert.strictEqual(at("rabbit", { mode: "spring", sprouts: 12, groundSnow: 0, groundCover: 0 }), "", "spring: on the sprouts")
+  assert.strictEqual(at("bird", { mode: "snow" }), "")
+  assert.strictEqual(at("bird", { mode: "clear" }), "")
+  assert.strictEqual(at("bird", { mode: "spring" }), "")
+  for (const m of ["blizzard", "rain", "sleet", "leaves"]) assert.ok(at("bird", { mode: m }), "no robin in " + m)
+  assert.ok(at("bird", { mode: "snow", windStrong: true }))
+  assert.ok(at("bird", { mode: "snow", perches: 0 }))
+  // Context gates, all of them.
+  for (const g of [{ calm: true }, { fullscreen: true }, { dragging: true }, { decorating: true }, { surprises: false }, { lowPower: true }]) {
+    assert.ok(at("bird", Object.assign({ mode: "snow" }, g)), JSON.stringify(g))
+    assert.ok(at("rabbit", Object.assign({ mode: "snow" }, g)), JSON.stringify(g))
+  }
+  // The mode: the effect, then spring, then the live weather's kind.
+  assert.strictEqual(Policy.sceneMode("rain", {}, "snow"), "rain")
+  assert.strictEqual(Policy.sceneMode("snow", { spring: 0.8 }, "snow"), "spring")
+  assert.strictEqual(Policy.sceneMode("snow", { spring: 0 }, ""), "snow", "no live weather: the calendar's snow")
+  assert.strictEqual(Policy.sceneMode("snow", { spring: 0 }, "sleet"), "sleet")
+  assert.strictEqual(Policy.surpriseAlias("cat"), "rabbit")
+  assert.strictEqual(Policy.surpriseAlias(""), "")
+  const W = load("lib/weather.js")
+  const kind = c => W.map(Object.assign({ tempC: -3, precip: 0, snowfall: 0, windKmh: 5, windDir: 0, isDay: true }, c)).kind
+  assert.strictEqual(kind({ snowfall: 1, precip: 1 }), "snow")
+  assert.strictEqual(kind({ snowfall: 0.1, precip: 0.1 }), "flurries")
+  assert.strictEqual(kind({ snowfall: 3, precip: 3 }), "blizzard")
+  assert.strictEqual(kind({ snowfall: 1, windKmh: 55 }), "blizzard")
+  assert.strictEqual(kind({ precip: 2, tempC: 6 }), "rain")
+  assert.strictEqual(kind({ precip: 1, tempC: 0.5 }), "sleet")
+  assert.strictEqual(kind({}), "clear")
+})
+

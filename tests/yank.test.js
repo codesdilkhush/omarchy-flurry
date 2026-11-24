@@ -112,7 +112,7 @@ test("icicles snap, a perched bird takes off, and the shell hears of the yank", 
   const w = scene()
   const s = w.surfaces[TERM.id]
   assert.ok(s.icicles && s.icicles.some(i => i.len > 4), "icicles grew")
-  S.spawnBird(w)
+  S.spawnBird(w, { surface: TERM.id })
   for (let t = 0; t < 3; t += dt) { S.setSurfaces(w, [TERM], w.time, [TERM.id], still(TERM)); S.step(w, dt) }
   assert.strictEqual(w.bird.mode, "perch")
   S.takeEvents(w)

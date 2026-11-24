@@ -235,7 +235,8 @@ PanelWindow {
                                         && p.y >= sceneWin.screen.y && p.y < sceneWin.screen.y + sceneWin.height,
                                   stillFor: p.stillFor } : null
         Sim.setStrings(sceneWin.world, sceneWin.stringSpecList)
-        Sim.step(sceneWin.world, dt, { pointer: local })
+        try { Sim.step(sceneWin.world, dt, { pointer: local }) } catch (e) { sceneWin.noteFault("step", e) }
+        sceneWin.reportFaults()
         var events = Sim.takeEvents(sceneWin.world)
         for (var e = 0; e < events.length; e++) {
           if (events[e].type === "yank") sceneWin.dropRiders(events[e])
@@ -339,7 +340,14 @@ PanelWindow {
     visible: sceneWin.live
     renderTarget: Canvas.FramebufferObject
     renderStrategy: Canvas.Cooperative
-    onPaint: if (sceneWin.world) Draw.world(getContext("2d"), sceneWin.world)
+    onPaint: {
+      if (!sceneWin.world) return
+      var ctx = getContext("2d")
+      // A fresh state every frame, so nothing a failed paint left behind (a
+      // transform, an alpha) carries into the next one.
+      ctx.reset()
+      try { Draw.world(ctx, sceneWin.world) } catch (e) { sceneWin.noteFault("paint", e) }
+    }
   }
 
   // ------------------------------------------------------------ placement
@@ -555,7 +563,8 @@ PanelWindow {
 
   // ------------------------------------------------------------ visitors
 
-  function callPlow() { return world ? Sim.callPlow(world) : false }
+  // "sent", "off" (the switch is off) or "out" (one is already on its way).
+  function callPlow() { return world ? Sim.requestPlow(world) : "no screen" }
 
   // The snow globe: everything lying about lifts and swirls, and the
   // decorations rock.
@@ -573,24 +582,56 @@ PanelWindow {
   }
   function countdownTick(n) { if (world && live) Sim.countdownTick(world, n) }
 
-  // What can come here now, for picking a surprise.
+  // What the visitors would find here now, for the scheduler and `flurry
+  // diag` (see Sim.critterContext and Policy.surpriseBlock).
   function surpriseContext() {
-    if (!world || !live) return {}
-    var snowy = false
-    for (var i = 0; i < world.order.length; i++) {
-      var s = world.order[i]
-      if (!s.ground && !s.plow && Sim.sumOf(s.bins) > 40) snowy = true
-    }
-    var g = world.surfaces[Sim.GROUND_ID]
-    return { snowyWindow: snowy, groundSnow: !!g && Sim.sumOf(g.bins) / g.bins.length > 2.5 && !world.plow,
-             snowing: world.effect === "snow" && world.env.snowScale > 0.2 }
+    if (!world) return { offline: "no scene" }
+    if (!live) return { offline: effectOn ? "a fullscreen app is up" : "Flurry is off", fullscreen: fullscreenApp }
+    var c = Sim.critterContext(world)
+    c.fullscreen = fullscreenApp
+    // A window being dragged (or anything moved in the last moment and the
+    // pointer is moving): nothing lands on a moving target.
+    c.dragging = windowsMoving && !!service && Date.now() - service.lastPointerMove < 1500
+    return c
   }
-  function surprise(kind) {
+  // force: a named call (`flurry surprise rabbit`), which comes even with
+  // the plow out.
+  function surprise(kind, force) {
     if (!world || !live) return false
     if (kind === "bird") return Sim.spawnBird(world)
-    if (kind === "cat") return Sim.spawnCat(world)
+    if (kind === "rabbit") return Sim.spawnRabbit(world, { coat: world.env.spring >= 0.5 ? "brown" : "white", force: !!force })
     if (kind === "golden") return Sim.spawnGolden(world)
     return false
+  }
+  function freeze() { return world && live ? Sim.freezeNow(world) : -1 }
+  // Calm mode came on (or surprises went off): whoever is here leaves now.
+  function dismissCritters() { return world ? Sim.dismissCritters(world) : false }
+
+  // Faults a feature hit in the simulation or the paint (see Sim.fault and
+  // Draw.layer), each printed once; `flurry diag` lists them.
+  property int faultsSeen: 0
+  property var shellFaults: ({})
+  function noteFault(name, e) {
+    var f = shellFaults[name]
+    if (f) { f.count++; return }
+    var next = Object.assign({}, shellFaults)
+    next[name] = { message: String(e && e.message ? e.message : e), count: 1 }
+    shellFaults = next
+    console.warn("flurry: " + name + " failed: " + next[name].message)
+  }
+  function reportFaults() {
+    if (!world || !world.faults || (world.faultSeq || 0) === faultsSeen) return
+    faultsSeen = world.faultSeq || 0
+    for (var k in world.faults) if (!world.faults[k].warned) {
+      world.faults[k].warned = true
+      console.warn("flurry: " + k + " failed and was switched off for that frame: " + world.faults[k].message)
+    }
+  }
+  function faults() {
+    var out = {}
+    if (world && world.faults) for (var k in world.faults) out[k] = { message: world.faults[k].message, count: world.faults[k].count }
+    for (var j in shellFaults) out["scene:" + j] = shellFaults[j]
+    return out
   }
 
   // A friend's snowball, flying in.

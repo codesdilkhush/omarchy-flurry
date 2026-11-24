@@ -1,0 +1,41 @@
+// The QML side reaches every library function it calls: each `Lib.name`
+// used in a .qml file is imported there (import "lib/x.js" as Lib) and is a
+// top-level function or var of that library (a missing one is undefined in
+// QML and throws only when that path runs live, e.g. a surprise or `diag`).
+// Also: every IPC function bin/flurry calls exists on the ShellIpc target.
+const test = require("node:test")
+const assert = require("node:assert")
+const fs = require("fs"), path = require("path")
+const load = require("./load")
+const root = path.join(__dirname, "..")
+
+test("every library call in the QML is imported and defined", () => {
+  const libs = {}
+  for (const f of fs.readdirSync(path.join(root, "lib"))) libs[f] = load("lib/" + f)
+  let checked = 0
+  for (const q of fs.readdirSync(root).filter(f => f.endsWith(".qml"))) {
+    // Comments out (whole-line and trailing), so only code is checked.
+    const src = fs.readFileSync(path.join(root, q), "utf8").split("\n").map(l => l.replace(/(^|\s)\/\/ .*$/, "")).join("\n")
+    const imports = {}
+    for (const m of src.matchAll(/^import "lib\/(\w+\.js)" as (\w+)/mg)) imports[m[2]] = m[1]
+    for (const m of src.matchAll(/\b(Sim|Draw|Policy|Store|Season|Weather|Theme)\.([A-Za-z_]\w*)/g)) {
+      assert.ok(imports[m[1]], `${q} uses ${m[1]}.${m[2]} without importing ${m[1]}`)
+      assert.ok(m[2] in libs[imports[m[1]]], `${q}: ${m[1]}.${m[2]} is not defined in lib/${imports[m[1]]}`)
+      checked++
+    }
+  }
+  assert.ok(checked > 100, String(checked))
+})
+
+test("every bin/flurry command reaches a ShellIpc function", () => {
+  const svc = fs.readFileSync(path.join(root, "Service.qml"), "utf8")
+  const ipc = svc.slice(svc.indexOf("ShellIpc {"))
+  const fns = new Set([...ipc.matchAll(/function (\w+)\(/g)].map(m => m[1]))
+  const bin = fs.readFileSync(path.join(root, "bin/flurry"), "utf8")
+  const called = new Set()
+  for (const m of bin.matchAll(/call (\w+)/g)) called.add(m[1])
+  for (const m of bin.matchAll(/^\s*([\w|]+)\) call "\$cmd"/mg)) m[1].split("|").forEach(c => called.add(c))
+  called.delete("cmd")
+  for (const c of called) assert.ok(fns.has(c), "no IPC function " + c)
+  for (const c of ["plow", "diag", "freeze", "surprise"]) assert.ok(called.has(c), c)
+})

@@ -32,7 +32,7 @@ test("open, accumulate, close: the ledge falls as loose snow at once and leaves 
   const s = w.surfaces[TERM.id]
   assert.ok(ledge(w) > 600, "a believable layer built up: " + ledge(w))
   assert.ok(s.icicles && s.icicles.some(i => i.len > 4), "icicles grew on it")
-  S.spawnBird(w)
+  S.spawnBird(w, { surface: TERM.id })
   for (let t = 0; t < 3; t += dt) { S.setSurfaces(w, [TERM], w.time, [TERM.id]); S.step(w, dt) }
   assert.strictEqual(w.bird.mode, "perch")
   const lying = ledge(w) + s.edges[0].m + s.edges[1].m
@@ -201,20 +201,22 @@ test("snowmen ride a window by its address; junk addresses are dropped", () => {
   assert.strictEqual(Store.normalizePlace({}).windowAddress, "")
 })
 
-test("surprises come within a minute or two: a bird on a bare ledge, a cat on bare ground", () => {
+test("surprises come within a minute or two: a bird on a bare ledge, a hare on bare ground", () => {
   const w = S.createWorld(W, H, { plow: false })
   S.setSurfaces(w, [TERM], 0)
-  assert.ok(S.spawnBird(w))
-  assert.ok(S.spawnCat(w))
+  assert.ok(S.spawnBird(w, { surface: TERM.id }))
+  assert.ok(S.spawnRabbit(w))
   for (let t = 0; t < 4; t += dt) { S.setSurfaces(w, [TERM], w.time); S.step(w, dt) }
   assert.strictEqual(w.bird.mode, "perch")
-  assert.ok(w.cat && isFinite(w.cat.x))
+  assert.ok(w.rabbit && isFinite(w.rabbit.x) && isFinite(w.rabbit.y))
 })
 
 test("drawing: falling snow is painted behind windows, never over a window's face", { skip: !createCanvas && "needs @napi-rs/canvas" }, () => {
   const D = load("lib/draw.js")
   const w = S.createWorld(800, 600, { effect: "snow", intensity: 2, plow: false })
   const r = { id: "0x1", x: 200, y: 150, w: 400, h: 300, floating: true, z: 0 }
+  // Frost and icicles are ice on the window, not snow: switched off here.
+  S.setFeatures(w, { icicles: false })
   for (let t = 0; t < 20; t += dt) { S.setSurfaces(w, [r], w.time); S.step(w, dt) }
   // Put flakes and chunks right in front of the window's face.
   for (let i = 0; i < 200; i++) w.particles.push({ kind: i % 2 ? "flake" : "clump", x: 220 + Math.random() * 360, y: 200 + Math.random() * 200,
