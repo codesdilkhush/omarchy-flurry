@@ -265,12 +265,14 @@ test("surprises: the first within two minutes, then every few; never the same vi
   assert.strictEqual(Policy.pickSurprise([], 0, { mode: "rain", perches: 0 }, rng), "")
 })
 
-test("visitors follow the weather: the hare only in snow, the robin not in a blizzard, rain or strong wind", () => {
+test("visitors follow the weather: the hare in snow or on a clear day with snow lying, the robin not in a blizzard, rain or strong wind", () => {
   const base = { perches: 4, groundSnow: 3, groundCover: 0.5, sprouts: 0 }
   const at = (kind, extra) => Policy.surpriseBlock(kind, Object.assign({}, base, extra))
   assert.strictEqual(at("rabbit", { mode: "snow" }), "")
   assert.strictEqual(at("rabbit", { mode: "flurries" }), "")
-  for (const m of ["blizzard", "rain", "sleet", "clear", "leaves", "starfall", "sakura", "fireflies"])
+  assert.strictEqual(at("rabbit", { mode: "clear" }), "", "a clear day with snow lying")
+  assert.ok(at("rabbit", { mode: "clear", groundSnow: 0, groundCover: 0 }), "a clear day needs snow on the ground too")
+  for (const m of ["blizzard", "rain", "sleet", "leaves", "starfall", "sakura", "fireflies"])
     assert.ok(at("rabbit", { mode: m }), "no hare in " + m)
   assert.ok(at("rabbit", { mode: "snow", groundSnow: 0, groundCover: 0 }), "needs snow on the ground")
   assert.ok(at("rabbit", { mode: "snow", plow: true }), "not with the plow out")
