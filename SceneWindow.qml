@@ -102,32 +102,56 @@ PanelWindow {
     canvas.requestPaint()
   }
 
+  // The windows in view on this screen, screen-local, keyed by their
+  // Hyprland address ("0x" + hex) so everything riding one is tied to that
+  // window and nothing else. Only windows that really exist (see the window
+  // feed in Service.qml), on this monitor's active workspace or its open
+  // special workspace, mapped and not hidden.
+  function windowId(ipc, toplevel) {
+    var k = service ? service.addrKey(ipc && ipc.address ? ipc.address : toplevel.address) : ""
+    return k ? "0x" + k : ""
+  }
   function readWindows() {
-    var list = workspace && workspace.toplevels ? workspace.toplevels.values : []
-    var sx = screen ? screen.x : 0, sy = screen ? screen.y : 0
     var rects = []
-    for (var i = 0; i < list.length; i++) {
-      var ipc = list[i].lastIpcObject
+    if (!workspace || !service) return rects
+    var sx = screen ? screen.x : 0, sy = screen ? screen.y : 0
+    var mon = monitor && monitor.lastIpcObject ? monitor.lastIpcObject : null
+    var special = mon && mon.specialWorkspace && mon.specialWorkspace.id ? Number(mon.specialWorkspace.id) : 0
+    var wsId = Number(workspace.id)
+    var all = Hyprland.toplevels.values
+    var seen = {}
+    for (var i = 0; i < all.length; i++) {
+      var ipc = all[i].lastIpcObject
       if (!ipc || !ipc.at || !ipc.size || ipc.hidden || ipc.mapped === false) continue
+      var ws = ipc.workspace ? Number(ipc.workspace.id) : NaN
+      // Its own workspace says where it is; Quickshell's lists can lag.
+      if (ws !== wsId && !(special && ws === special)) continue
+      var id = windowId(ipc, all[i])
+      if (!id || seen[id] || !service.windowExists(id)) continue
+      seen[id] = true
+      var x = Number(ipc.at[0]) - sx, y = Number(ipc.at[1]) - sy, w = Number(ipc.size[0]), h = Number(ipc.size[1])
+      if (!isFinite(x + y + w + h)) continue
       rects.push({
-        id: String(ipc.address || list[i].address),
+        id: id,
         cls: String(ipc["class"] || ""),
-        x: ipc.at[0] - sx, y: ipc.at[1] - sy, w: ipc.size[0], h: ipc.size[1],
-        floating: !!ipc.floating,
+        x: x, y: y, w: w, h: h,
+        // The special workspace is shown over everything else.
+        floating: !!ipc.floating || (special > 0 && ws === special),
         z: ipc.focusHistoryID === undefined ? 50 : Number(ipc.focusHistoryID)
       })
     }
     return rects
   }
 
-  // Every window that still exists, on any workspace: their snow is kept
-  // aside while they are out of sight instead of falling.
+  // Every window that still exists, on any workspace or monitor: their snow
+  // is kept aside while they are out of sight instead of falling.
   function aliveIds() {
-    var all = Hyprland.toplevels.values
     var ids = []
+    if (!service) return ids
+    var all = Hyprland.toplevels.values
     for (var i = 0; i < all.length; i++) {
-      var ipc = all[i].lastIpcObject
-      ids.push(String(ipc && ipc.address ? ipc.address : all[i].address))
+      var id = windowId(all[i].lastIpcObject, all[i])
+      if (id && service.windowExists(id)) ids.push(id)
     }
     return ids
   }
@@ -137,22 +161,36 @@ PanelWindow {
   property real lastSurfaceChange: -10
   readonly property bool windowsMoving: clock - lastSurfaceChange < 1.5
 
+  // Windows seen on this screen this session, and where each was last, so
+  // something riding a window that closes can be put down where it was.
+  property var seenWindows: ({})
+  property var lastRects: ({})
+
   function syncWindows() {
     var rects = readWindows()
     var sig = rects.map(function(r) { return [r.id, r.x, r.y, r.w, r.h, r.floating ? 1 : 0, r.z].join(",") }).join(";")
     if (sig === surfaceSig) return
     if (surfaceSig !== "") service.noteMotion()
+    var gone = surfaceSig !== "" && rects.length < windowRects.length
     surfaceSig = sig
     windowRects = rects
     lastSurfaceChange = clock
     Sim.setSurfaces(world, rects, clock, aliveIds())
+    var seen = seenWindows, last = {}
+    for (var i = 0; i < rects.length; i++) { seen[rects[i].id] = true; last[rects[i].id] = rects[i] }
+    for (var k in lastRects) if (!last[k] && service.windowExists(k)) last[k] = lastRects[k]
+    lastRects = last
+    seenWindows = seen
+    if (gone || rects.length) checkRiders()
   }
 
   FrameAnimation {
     id: frames
     running: sceneWin.visible && (sceneWin.live || sceneWin.busy || sceneWin.decorating)
     onTriggered: {
-      var dt = frameTime
+      // A long frame (a suspend, a stall) counts as an ordinary one, so
+      // nothing jumps when the machine wakes.
+      var dt = Math.min(Math.max(frameTime, 0), 0.1)
       sceneWin.clock += dt
       // On battery the scene draws at 30 fps (24 when it runs low).
       if (sceneWin.service.fpsCap < 60) {
@@ -169,7 +207,7 @@ PanelWindow {
                                   present: p.x >= sceneWin.screen.x && p.x < sceneWin.screen.x + sceneWin.width
                                         && p.y >= sceneWin.screen.y && p.y < sceneWin.screen.y + sceneWin.height,
                                   stillFor: p.stillFor } : null
-        Sim.setStrings(sceneWin.world, sceneWin.stringSpecs())
+        Sim.setStrings(sceneWin.world, sceneWin.stringSpecList)
         Sim.step(sceneWin.world, dt, { pointer: local })
         var events = Sim.takeEvents(sceneWin.world)
         for (var e = 0; e < events.length; e++) sceneWin.service.sceneEvent(sceneWin, events[e])
@@ -277,8 +315,9 @@ PanelWindow {
   // ------------------------------------------------------------ placement
 
   // The light strings on this screen now: one on every window of each
-  // decorated class.
-  function stringSpecs() {
+  // decorated class, each keyed by that window's address. Recomputed only
+  // when the windows or the strings change, not every frame.
+  readonly property var stringSpecList: {
     var list = service ? service.saved.strings : []
     var out = []
     for (var i = 0; i < list.length; i++)
@@ -287,6 +326,7 @@ PanelWindow {
           out.push({ id: list[i].id + ":" + windowRects[j].id, surface: windowRects[j].id, palette: list[i].palette })
     return out
   }
+  function stringSpecs() { return stringSpecList }
 
   function classAt(x, y) {
     var id = world ? Sim.surfaceAt(world, x, y) : null
@@ -295,17 +335,22 @@ PanelWindow {
     return ""
   }
 
+  function rectFor(id) {
+    for (var i = 0; i < windowRects.length; i++) if (windowRects[i].id === id) return windowRects[i]
+    return null
+  }
+
   function rectForClass(cls) {
     for (var i = 0; i < windowRects.length; i++) if (windowRects[i].cls === cls) return windowRects[i]
     return null
   }
 
-  // Whether a window of this class still exists anywhere, on any workspace.
+  // A window of this class that exists anywhere, on any workspace.
   function classAlive(cls) {
     var all = Hyprland.toplevels.values
     for (var i = 0; i < all.length; i++) {
       var ipc = all[i].lastIpcObject
-      if (ipc && String(ipc["class"] || "") === cls) return true
+      if (ipc && String(ipc["class"] || "") === cls && service.windowExists(windowId(ipc, all[i]))) return true
     }
     return false
   }
@@ -317,48 +362,80 @@ PanelWindow {
   }
 
   // Feet position for a saved place, or null when it rides a window that is
-  // not on this screen's workspace right now.
+  // not in view on this screen right now (on another workspace, hidden,
+  // behind another window, or gone: checkRiders puts those down).
   function feetFor(place) {
     var tick = heapTick
-    if (place.windowClass) {
-      var r = rectForClass(place.windowClass)
+    var rects = windowRects
+    if (place.windowAddress || place.windowClass) {
+      var r = place.windowAddress ? rectFor(place.windowAddress) : null
       if (!r) return null
       var x = r.x + place.windowFx * r.w
       var top = world ? Sim.restingY(world, r.id, x) : r.y
-      return { x: x, y: top === null ? r.y : top, surface: r.id }
+      var y = top === null ? r.y : top
+      if (world && Sim.surfaceCovered(world, r.id, x, y - 4)) return null
+      return { x: x, y: y, surface: r.id }
     }
     var fx = place.fx * width
     return { x: fx, y: place.fy >= 0.999 ? groundTop(fx) : place.fy * groundY, surface: "" }
   }
 
   // Where something dropped at feet (x, y) belongs. A snowman let go just
-  // above a window's top edge rides that window.
+  // above a window's top edge rides that window, by its address.
   function placeAt(kind, x, y) {
     if (kind === "snowman") {
       for (var i = 0; i < windowRects.length; i++) {
         var r = windowRects[i]
-        if (x >= r.x && x <= r.x + r.w && y >= r.y - 40 && y <= r.y + 30 && r.cls)
-          return { screen: screenName, fx: x / width, fy: 1, windowClass: r.cls, windowFx: (x - r.x) / r.w }
+        if (x >= r.x && x <= r.x + r.w && y >= r.y - 40 && y <= r.y + 30 && (!world || !Sim.surfaceCovered(world, r.id, x, r.y - 4)))
+          return { screen: screenName, fx: x / width, fy: 1, windowAddress: r.id, windowClass: r.cls, windowFx: (x - r.x) / r.w }
       }
     }
     var fy = Math.max(0.05, Math.min(1, y / groundY))
     if (fy > 0.95) fy = 1
-    return { screen: screenName, fx: Math.max(0, Math.min(1, x / width)), fy: fy, windowClass: "", windowFx: 0.5 }
+    return { screen: screenName, fx: Math.max(0, Math.min(1, x / width)), fy: fy, windowAddress: "", windowClass: "", windowFx: 0.5 }
   }
 
-  // A snowman whose window is gone for good drops to the ground below it.
+  // Snowmen riding windows. One whose window closed this session is put
+  // down on the ground below where it stood, at once. One saved in an
+  // earlier session (its window's address is gone with that session) takes
+  // the first window of the same app, or the ground if there is none.
+  property real startedAt: Date.now()
+  function checkRiders() {
+    if (!service) return
+    var list = service.saved.snowmen
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i], pl = m.place
+      if (pl.screen !== screenName || (!pl.windowAddress && !pl.windowClass)) continue
+      if (pl.windowAddress && service.windowExists(pl.windowAddress)) {
+        // Its window went to another monitor: it goes along.
+        if (!rectFor(pl.windowAddress)) {
+          var other = service.sceneShowing(pl.windowAddress)
+          if (other && other !== sceneWin) service.moveItem("snowman", m.id, Object.assign({}, pl, { screen: other.screenName }))
+        }
+        continue
+      }
+      var was = pl.windowAddress ? lastRects[pl.windowAddress] : null
+      var known = pl.windowAddress && seenWindows[pl.windowAddress]
+      if (!known && pl.windowClass) {
+        var r = rectForClass(pl.windowClass)
+        if (r) { service.moveItem("snowman", m.id, Object.assign({}, pl, { windowAddress: r.id })); continue }
+        // Give the session a moment to show its windows before giving up.
+        if (Date.now() - startedAt < 4000 || classAlive(pl.windowClass)) continue
+      }
+      var fx = was ? (was.x + pl.windowFx * was.w) / width : pl.fx
+      service.moveItem("snowman", m.id, { screen: screenName, fx: Math.max(0, Math.min(1, fx)), fy: 1, windowAddress: "", windowClass: "", windowFx: 0.5 })
+    }
+  }
   Timer {
     interval: 3000
     repeat: true
-    running: sceneWin.effectOn && Hyprland.toplevels.values.length > 0
+    running: sceneWin.effectOn
     onTriggered: {
-      var list = sceneWin.service.saved.snowmen
-      for (var i = 0; i < list.length; i++) {
-        var m = list[i]
-        if (m.place.screen !== sceneWin.screenName || !m.place.windowClass) continue
-        if (!sceneWin.classAlive(m.place.windowClass))
-          sceneWin.service.moveItem("snowman", m.id, { screen: sceneWin.screenName, fx: m.place.fx, fy: 1, windowClass: "", windowFx: 0.5 })
-      }
+      sceneWin.checkRiders()
+      // Forget windows that are gone for good once their riders are down.
+      var keep = {}
+      for (var k in sceneWin.seenWindows) if (sceneWin.service.windowExists(k)) keep[k] = true
+      sceneWin.seenWindows = keep
     }
   }
 

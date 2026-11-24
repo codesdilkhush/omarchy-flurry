@@ -217,6 +217,13 @@ This is opt-in. Pick a friend with `flurry throwto <friend>` and turn it on with
 - On battery it runs at 30 fps, and below 20% charge at 24 fps.
 - `flurry calm on|off|work` turns off surprises and fireworks and softens the snow. With `work`, calm mode applies only during the `workHours` set in `state.json`.
 
+### How the snow treats your windows
+- Falling snow is drawn behind windows and only settles on their top edges. It never covers what's inside a window.
+- A window's ledge snow, icicles, lights, snowmen, perched birds and resting snowballs are tied to that window's Hyprland address. When the window closes or leaves the workspace or monitor, they're released straight away: the ledge falls as loose snow and nothing is left floating.
+- `hyprctl -j clients` decides which windows exist. Flurry checks it every 2 s and after every window event, and ignores any reply that arrived before a window closed.
+- While you drag a window, its snow rides along with it. Only a sustained fast fling, or a sharp drop held for over 70 ms, sheds snow, and then it slides off the trailing edge a few clumps at a time. The air a moving window stirs up eases in and out.
+- The first little surprise shows up 45 to 100 seconds after start, then one every 3 to 7 minutes. Icicles form within a minute or two in cold weather.
+
 ## From the terminal
 
 `bin/flurry` wraps the IPC target, handy for Hyprland binds:

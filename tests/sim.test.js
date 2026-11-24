@@ -64,13 +64,22 @@ test("a slow, steady drag keeps the snow on the window", () => {
   assert.ok(onWindow(w) > before * 0.85, `kept ${onWindow(w)} of ${before}`)
 })
 
-test("a fling slides the snow off the trailing edge and it falls", () => {
+test("a fling slides snow off the trailing edge gradually, a little at a time, and it falls", () => {
   const { w, r } = snowyWindow()
   const before = onWindow(w)
-  move(w, r, 0.5, t => [Math.min(t, 0.15) / 0.15 * 300])
-  assert.ok(onWindow(w) < before * 0.75, `kept ${onWindow(w)} of ${before}`)
+  let most = 0
+  const dt = 1 / 60
+  for (let t = 0; t < 0.9; t += dt) {
+    const had = w.particles.length
+    S.setSurfaces(w, [Object.assign({}, r, { x: r.x + Math.min(t, 0.35) / 0.35 * 700 })], w.time)
+    S.step(w, dt)
+    most = Math.max(most, w.particles.length - had)
+  }
+  assert.ok(onWindow(w) < before * 0.99, `some came off: kept ${onWindow(w)} of ${before}`)
+  assert.ok(onWindow(w) > before * 0.6, `most of it rode along: kept ${onWindow(w)} of ${before}`)
   const left = w.particles.filter(p => p.kind === "clump" && p.x < w.surfaces.a.x)
-  assert.ok(left.length > 0, "snow left behind the moving window")
+  assert.ok(left.length > 0, "snow came off behind the moving window")
+  assert.ok(most <= S.SNOW.shedBudget + 8, `no burst: at most ${most} new pieces in a frame`)
 })
 
 test("a hard stop throws the snow forward", () => {
@@ -81,18 +90,29 @@ test("a hard stop throws the snow forward", () => {
   assert.ok(right.length > 0, "chunks went over the leading edge")
 })
 
-test("a window yanked downward faster than gravity leaves its snow in the air", () => {
+test("a window dropped faster than gravity lifts its snow off over a moment, not in one frame", () => {
   const { w, r } = snowyWindow()
-  move(w, r, 0.12, t => [0, 0.5 * 5000 * t * t])
-  assert.ok(sum(w.surfaces.a.bins) < 1, "snow lifted off")
+  const before = sum(w.surfaces.a.bins)
+  const dt = 1 / 60
+  let worst = 0, prev = before
+  for (let t = 0; t < 0.5; t += dt) {
+    S.setSurfaces(w, [Object.assign({}, r, { y: r.y + 0.5 * 5000 * t * t })], w.time)
+    S.step(w, dt)
+    const now = sum(w.surfaces.a.bins)
+    worst = Math.max(worst, (prev - now) / before)
+    prev = now
+  }
+  assert.ok(sum(w.surfaces.a.bins) < before * 0.5, `most of the snow lifted off: ${sum(w.surfaces.a.bins)} of ${before}`)
+  assert.ok(worst < 0.2, `a share at a time: worst frame took ${worst}`)
   assert.ok(w.particles.some(p => p.kind === "clump"))
+  assert.ok(w.particles.every(p => Math.hypot(p.vx, p.vy) < 2200), "nothing flies off faster than the window could throw it")
 })
 
 test("sliding conserves snow", () => {
   const { w, r } = snowyWindow()
   // Flakes still falling from before the snow stopped count too: they land
   // during the test (leaving them out made it fail now and then).
-  const flake = p => Math.PI * p.r * p.r * 0.22 / S.CELL
+  const flake = p => Math.PI * p.r * p.r * S.FLAKE_VOLUME / S.CELL
   const airborne = () => w.particles.reduce((a, p) => a + (p.kind === "clump" || p.kind === "powder" ? p.amount : (p.kind === "flake" ? flake(p) : 0)), 0)
   const total = () => S.totalSnow(w) + airborne()
   const before = total()

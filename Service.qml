@@ -137,6 +137,11 @@ Item {
     for (var k in root.scenes) return root.scenes[k]
     return null
   }
+  // The scene whose screen shows this window now, if any.
+  function sceneShowing(addr) {
+    for (var k in root.scenes) if (root.scenes[k].rectFor && root.scenes[k].rectFor(addr)) return root.scenes[k]
+    return null
+  }
   function sceneForPlace(place) {
     return (place && root.scenes[place.screen]) || root.focusedScene()
   }
@@ -290,11 +295,118 @@ Item {
   //
   // Hyprland reports no events while a window is being dragged, so the
   // scenes cannot just wait for one. While the effect is on, the toplevel
-  // list is refreshed on a timer that runs fast for a couple of seconds after
-  // anything moved and slow otherwise. A refresh is one request on
+  // list is refreshed on a timer: every frame for two seconds after any
+  // window moved, every 50 ms while the pointer moves (a drag may be
+  // starting), and every 200 ms otherwise. A refresh is one request on
   // Hyprland's socket, not a process.
+  //
+  // Which windows exist is not taken from that list alone. Quickshell
+  // re-creates a closed window's toplevel when a j/clients reply that was
+  // in flight as it closed arrives afterwards, and never drops it again; at
+  // this polling rate that happens often, and it left a ghost window that
+  // kept collecting snow in mid-air. So windows are also tracked by their
+  // address: one that closed (closewindow) is kept out at once, and every
+  // couple of seconds `hyprctl clients` says which windows really exist.
+
+  // Addresses as Hyprland's events write them: lower-case hex, no 0x.
+  function addrKey(a) {
+    var k = String(a === undefined || a === null ? "" : a).trim().toLowerCase()
+    return k.indexOf("0x") === 0 ? k.slice(2) : k
+  }
+  property var closedWindows: ({})       // address key -> when it closed (ms)
+  property var liveWindows: null         // address key -> true, from hyprctl; null until the first read
+  property int windowEpoch: 0            // bumped whenever either changes
+  function windowExists(addr) {
+    var k = addrKey(addr)
+    if (!k || root.closedWindows[k]) return false
+    return root.liveWindows === null || root.liveWindows[k] === true
+  }
+  function windowClosed(addr) {
+    var k = addrKey(addr)
+    if (!k) return
+    var next = Object.assign({}, root.closedWindows)
+    next[k] = Date.now()
+    // Keep the list short: the oldest go first, unless a ghost still has them.
+    var keys = Object.keys(next)
+    if (keys.length > 256) {
+      keys.sort(function(a, b) { return next[a] - next[b] })
+      for (var i = 0; i < keys.length - 256; i++) delete next[keys[i]]
+    }
+    root.closedWindows = next
+    if (root.liveWindows && root.liveWindows[k]) {
+      var live = Object.assign({}, root.liveWindows)
+      delete live[k]
+      root.liveWindows = live
+    }
+    root.windowEpoch++
+  }
+  function windowOpened(addr) {
+    var k = addrKey(addr)
+    if (!k) return
+    // Hyprland reuses addresses: a new window at one that closed is a new window.
+    if (root.closedWindows[k]) {
+      var next = Object.assign({}, root.closedWindows)
+      delete next[k]
+      root.closedWindows = next
+    }
+    // It exists from now on, before the next `hyprctl clients` says so.
+    if (root.liveWindows && !root.liveWindows[k]) {
+      var live = Object.assign({}, root.liveWindows)
+      live[k] = true
+      root.liveWindows = live
+    }
+    root.windowEpoch++
+  }
+
+  Process {
+    id: clientsProc
+    // Asked for again while a read was running: read once more after it,
+    // so the answer is never older than the last event.
+    property bool again: false
+    property real startedAt: 0
+    command: ["hyprctl", "-j", "clients"]
+    onExited: if (again) { again = false; root.readClients() }
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var list = null
+        try { list = JSON.parse(String(text || "")) } catch (e) { list = null }
+        if (!(list instanceof Array)) return
+        var live = {}
+        for (var i = 0; i < list.length; i++) if (list[i] && list[i].address) live[root.addrKey(list[i].address)] = true
+        // A window this says exists, that closed before this read began,
+        // is a new window at a reused address. One that closed while the
+        // read ran is closed: the reply is older than the event.
+        var closed = root.closedWindows, changed = false, nextClosed = Object.assign({}, closed)
+        for (var k in live) {
+          if (!nextClosed[k]) continue
+          if (nextClosed[k] < clientsProc.startedAt) { delete nextClosed[k]; changed = true }
+          else delete live[k]
+        }
+        if (changed) root.closedWindows = nextClosed
+        root.liveWindows = live
+        root.windowEpoch++
+      }
+    }
+  }
+  Timer {
+    id: clientsSoon
+    interval: 60
+    onTriggered: { if (clientsProc.running) clientsProc.again = true; else root.readClients() }
+  }
+  Timer {
+    interval: 2000
+    repeat: true
+    running: root.active
+    triggeredOnStart: true
+    onTriggered: if (!clientsProc.running) root.readClients()
+  }
+  function readClients() {
+    clientsProc.startedAt = Date.now()
+    clientsProc.running = true
+  }
 
   property real lastMotion: 0
+  property real lastPointerMove: 0
   function noteMotion() {
     var idle = Date.now() - root.lastMotion >= 2000
     root.lastMotion = Date.now()
@@ -306,9 +418,16 @@ Item {
   // While something moves the list is read every frame (about 60 times a
   // second), so the snow physics sees a drag as the smooth motion it is and
   // can tell a gentle drag from a jerk. Two seconds after the last change it
-  // drops back to a slow idle rate.
+  // drops back to a slower rate.
   readonly property int fastPoll: 16
-  readonly property int idlePoll: 220
+  readonly property int pointerPoll: 50
+  readonly property int idlePoll: 200
+  function pollInterval() {
+    var now = Date.now()
+    if (now - root.lastMotion < 2000) return root.fastPoll
+    if (now - root.lastPointerMove < 400) return root.pointerPoll
+    return root.idlePoll
+  }
   Timer {
     id: windowPoll
     running: root.active
@@ -316,17 +435,28 @@ Item {
     interval: root.idlePoll
     onTriggered: {
       Hyprland.refreshToplevels()
-      interval = Date.now() - root.lastMotion < 2000 ? root.fastPoll : root.idlePoll
+      interval = root.pollInterval()
     }
   }
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      switch (String(event.name)) {
+      var name = String(event.name)
+      switch (name) {
+      case "closewindow":
+        root.windowClosed(String(event.data).split(",")[0])
+        break
+      case "openwindow":
+        root.windowOpened(String(event.data).split(",")[0])
+        break
+      }
+      switch (name) {
       case "openwindow": case "closewindow": case "movewindowv2": case "changefloatingmode":
       case "fullscreen": case "workspacev2": case "focusedmonv2": case "activewindowv2":
+      case "moveworkspacev2": case "activespecial": case "minimized":
         Hyprland.refreshToplevels()
         root.noteMotion()
+        clientsSoon.restart()
       }
     }
   }
@@ -377,6 +507,12 @@ Item {
     var dt = p.at ? Math.max(0.016, (now - p.at) / 1000) : 0.05
     var vx = (x - p.x) / dt, vy = (y - p.y) / dt
     var moved = Math.abs(x - p.x) + Math.abs(y - p.y) > 2
+    // A moving pointer may be dragging a window: poll windows faster.
+    if (moved) {
+      var wasIdle = now - root.lastPointerMove >= 400 && now - root.lastMotion >= 2000
+      root.lastPointerMove = now
+      if (wasIdle && windowPoll.running) { windowPoll.interval = root.pointerPoll; windowPoll.restart() }
+    }
     root.pointer = {
       x: x, y: y,
       vx: p.at ? p.vx * 0.4 + vx * 0.6 : 0, vy: p.at ? p.vy * 0.4 + vy * 0.6 : 0,
@@ -392,7 +528,9 @@ Item {
   Timer {
     id: santaTimer
     running: root.active && root.saved.visitors && root.saved.effect === "snow"
-    interval: 60000 * (8 + Math.floor(Math.random() * 12))
+    // The first visit comes a few minutes after the scene starts, then every
+    // eight to twenty minutes.
+    interval: 60000 * (3 + Math.random() * 2)
     onTriggered: { root.summonSanta(); interval = 60000 * (8 + Math.floor(Math.random() * 12)); restart() }
   }
 
@@ -846,13 +984,16 @@ Item {
   // never in calm mode, fullscreen, decorate mode or on a low battery.
 
   property var surpriseHistory: []
+  // The first comes a minute or so after the scene starts; when nothing
+  // could come it looks again soon instead of minutes later.
   Timer {
     id: surpriseTimer
     running: root.active && root.gate.surprises && root.saved.effect === "snow" && root.decorating === ""
-    interval: Policy.planSurprise([], Date.now(), {}).delay
+    interval: Policy.planSurprise([], Date.now(), {}, Math.random, { first: true }).delay
     onTriggered: {
-      root.surpriseNow("")
-      interval = Policy.planSurprise(root.surpriseHistory, Date.now(), {}).delay
+      var got = root.surpriseNow("")
+      var came = got === "bird" || got === "cat" || got === "golden"
+      interval = Policy.planSurprise(root.surpriseHistory, Date.now(), {}, Math.random, { missed: !came }).delay
       restart()
     }
   }
@@ -926,7 +1067,8 @@ Item {
                                            current: root.saved.weatherCache.current } : null,
       calm: root.calmActive, onBattery: root.onBattery, battery: root.batteryPercent, fps: root.fpsCap,
       theme: root.theme ? root.theme.source : "off", ornamentStyle: root.saved.ornamentStyle,
-      ornamentStyles: root.saved.ornamentStyles, preview: root.seasonOverride
+      ornamentStyles: root.saved.ornamentStyles, preview: root.seasonOverride,
+      windows: { live: root.liveWindows ? Object.keys(root.liveWindows).length : -1, closed: Object.keys(root.closedWindows).length }
     })
   }
 

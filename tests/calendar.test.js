@@ -77,7 +77,9 @@ test("the day: melting only above freezing, faster in the afternoon sun; glaze o
   assert.ok(Season.dayCycle(night, -6).freeze > 0.8)
   assert.strictEqual(Season.dayCycle(noon, -6).freeze, 0)
   // Icicles grow on sunny days below freezing, barely at night.
-  assert.ok(Season.dayCycle(noon, -2).icicle > 3 * Season.dayCycle(night, -2).icicle)
+  assert.ok(Season.dayCycle(noon, -2).icicle > Season.dayCycle(night, -2).icicle)
+  assert.ok(Season.dayCycle(night, -2).icicle >= 0.5, "icicles still grow on a cold night")
+  assert.strictEqual(Season.dayCycle(noon, 6).icicle, 0, "not in the warmth")
   assert.strictEqual(Season.dayCycle(night, -6).drip, 0)
   // Without a reading, a mild winter day: melts a little after lunch only.
   assert.ok(Season.dayCycle(noon).melt > 0 && Season.dayCycle(night).melt === 0)
@@ -235,9 +237,15 @@ test("surprises: spaced out, rarely the same twice running, golden very rare, on
   const rng = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
   const ctx = { snowyWindow: true, groundSnow: true, snowing: true }
   let history = [], now = 0, repeats = 0, golden = 0, counts = { bird: 0, cat: 0, golden: 0 }
+  // The first one comes within a minute or two of starting.
+  const first = Policy.planSurprise([], 0, ctx, rng, { first: true })
+  assert.ok(first.delay >= 45000 && first.delay <= 100000, String(first.delay))
+  // Nothing could come: look again soon.
+  assert.strictEqual(Policy.planSurprise([{ kind: "bird", at: 0 }], 1000, ctx, rng, { missed: true }).delay, 25000)
+  history = [{ kind: "bird", at: 0 }]
   for (let i = 0; i < 2000; i++) {
     const plan = Policy.planSurprise(history, now, ctx, rng)
-    assert.ok(plan.delay >= 6 * 60000 && plan.delay <= 16 * 60000, String(plan.delay))
+    assert.ok(plan.delay >= 3 * 60000 && plan.delay <= 7 * 60000, String(plan.delay))
     now += plan.delay
     const kind = Policy.pickSurprise(history, now, ctx, rng)
     if (history.length && history[history.length - 1].kind === kind) repeats++

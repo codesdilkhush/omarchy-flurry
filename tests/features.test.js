@@ -133,8 +133,13 @@ test("a fast window blows loose powder up off the ground snow beneath it", () =>
   S.setSurfaces(w, [r], 0)
   const before = sum(g.bins)
   let x = r.x
-  for (let t = 0; t < 0.6; t += dt) { x += 1500 * dt; S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt) }
-  assert.ok(w.particles.some(p => p.kind === "powder"), "powder in the air")
+  // The air eases in, so it takes a moment to get going.
+  let puffs = false
+  for (let t = 0; t < 1.0; t += dt) {
+    x += 1500 * dt; S.setSurfaces(w, [Object.assign({}, r, { x })], w.time); S.step(w, dt)
+    puffs = puffs || w.particles.some(p => p.kind === "powder")
+  }
+  assert.ok(puffs, "powder in the air")
   assert.ok(sum(g.bins) < before, "taken from the ground")
 })
 
@@ -144,8 +149,9 @@ test("writing presses a groove into the snow; new snow fills it in", () => {
   const { w, r } = snowy()
   const g = w.surfaces.__ground
   const y = 1000 - 7
-  assert.ok(S.writeStart(w, 300, y))
-  for (let x = 300; x <= 420; x += 3) S.writeTo(w, x, y + Math.sin(x * 0.1) * 3)
+  // Well clear of the window, whose full ledge pours over its edges.
+  assert.ok(S.writeStart(w, 100, y))
+  for (let x = 100; x <= 220; x += 3) S.writeTo(w, x, y + Math.sin(x * 0.1) * 3)
   S.writeEnd(w)
   assert.ok(g.marks.length > 60, `points: ${g.marks.length}`)
   assert.ok(g.marks.every(m => m.t === 0 && m.a === 1))
@@ -190,15 +196,16 @@ test("marks go where the snow under them goes", () => {
 
 // ------------------------------------------------------------- icicles
 
-test("icicles grow on a snowy window's bottom edge, slowly, and only while it holds snow", () => {
+test("icicles grow on a snowy window's bottom edge within a minute or two, and only while it holds snow", () => {
   const ic = { len: 0, max: 20 }
   S.growIcicle(ic, 60, 1)
-  assert.ok(ic.len > 0.5 && ic.len < 3, `a minute: ${ic.len}`)
-  S.growIcicle(ic, 3600, 1)
-  assert.ok(ic.len > 19 && ic.len <= 20, `an hour: ${ic.len}`)
+  assert.ok(ic.len > 5 && ic.len < 14, `a minute: ${ic.len}`)
+  S.growIcicle(ic, 600, 1)
+  assert.ok(ic.len > 19 && ic.len <= 20, `ten minutes: ${ic.len}`)
+  // A cold night still grows them, a little slower.
   const night = { len: 0, max: 20 }
-  S.growIcicle(night, 3600, 0.06)
-  assert.ok(night.len < 5, `barely at night: ${night.len}`)
+  S.growIcicle(night, 120, S.neutralEnv().icicle)
+  assert.ok(night.len > 4, `a cold night: ${night.len}`)
 
   const { w, r } = snowy()
   S.setEnv(w, { snowScale: 0, icicle: 1, tempC: -2 })
@@ -206,7 +213,7 @@ test("icicles grow on a snowy window's bottom edge, slowly, and only while it ho
   const s = w.surfaces.a
   assert.ok(s.icicles && s.icicles.length >= 5, "seeded along the edge")
   assert.ok(s.icicles.every(i => i.ox > 0 && i.ox < r.w))
-  for (let k = 0; k < 12000; k++) S.step(w, 0.05)   // ten minutes
+  for (let k = 0; k < 2400; k++) S.step(w, 0.05)   // two minutes
   const long = s.icicles.filter(i => i.len > 3).length
   assert.ok(long >= 3, `grown: ${long}`)
   // A bare window grows none.
@@ -355,7 +362,7 @@ test("a bird lands on a snowy ledge, leaves footprints, and flies off when the p
   assert.strictEqual(w.bird, null, "gone")
 })
 
-test("a perched bird flies off when its window moves, and none comes without a snowy ledge", () => {
+test("a perched bird flies off when its window moves; a bare ledge will do, no ledge at all brings none", () => {
   const { w, r } = snowy()
   S.spawnBird(w)
   run(w, 3, [r])
@@ -364,10 +371,12 @@ test("a perched bird flies off when its window moves, and none comes without a s
   assert.strictEqual(w.bird.mode, "out")
   const bare = S.createWorld(1600, 1000, { plow: false })
   S.setSurfaces(bare, [r], 0)
-  assert.ok(!S.spawnBird(bare))
+  assert.ok(S.spawnBird(bare), "a bare window top is a perch too")
+  const none = S.createWorld(1600, 1000, { plow: false })
+  assert.ok(!S.spawnBird(none), "no window, no perch")
 })
 
-test("a cat walks across the ground snow leaving pawprints", () => {
+test("a cat walks across the ground, leaving pawprints in snow", () => {
   const { w, r } = snowy()
   assert.ok(S.spawnCat(w))
   w.cat.sat = true
@@ -376,8 +385,12 @@ test("a cat walks across the ground snow leaving pawprints", () => {
   assert.ok(prints.length > 20, `prints: ${prints.length}`)
   run(w, 40, [r])
   assert.strictEqual(w.cat, null, "walked off")
+  // On bare ground it still comes by, and leaves no prints.
   const bare = S.createWorld(1600, 1000, { plow: false })
-  assert.ok(!S.spawnCat(bare), "no snow, no cat")
+  assert.ok(S.spawnCat(bare), "a cat crosses bare ground too")
+  bare.cat.sat = true
+  run(bare, 5, [])
+  assert.ok(!(bare.surfaces.__ground.marks || []).length, "no prints without snow")
 })
 
 test("the golden snowflake falls slowly; caught, it tells the shell once", () => {
