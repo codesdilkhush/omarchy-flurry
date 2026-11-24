@@ -1,6 +1,6 @@
 // A before/after contact sheet for the review: the window lifecycle (ledge
 // snow and icicles, the same window closed, a frame mid-drag) and every
-// character (cat, robin, Santa, the train, gifts, the tree, the snowman).
+// character (hare, robin, Santa, the train, gifts, the tree, the snowman).
 // The left column is painted by an older copy of lib/ (pass its folder),
 // the right one by this tree.
 //   NODE_PATH=<dir with @napi-rs/canvas> node tests/render-review.js out.png [old-root]
@@ -118,14 +118,13 @@ function lifecycle(L, old) {
 function characters(L, old) {
   const D = L.D, P = []
   const who = old ? "before" : "after"
-  // The cat: walking and sitting.
-  P.push(still(who + ": the cat, walking and sitting", 0, 0, 3.2, (ctx, gy, k) => {
-    const t = 1.3
+  // The hare: mid-hop and sat up (the cat it replaced is gone).
+  if (D.drawRabbit) P.push(still(who + ": the hare, hopping and sat up", 0, 0, 3.2, (ctx, gy, k) => {
     ctx.save(); ctx.translate(140, gy); ctx.scale(k, k)
-    D.drawCat(ctx, { x: 0, y: 0, dir: 1, mode: "walk", gait: 2.1, tail: t, blend: 0, groom: 0 })
+    D.drawRabbit(ctx, { x: 0, y: -5, dir: 1, pose: 1, up: 0, ears: 0.4, lift: 5, nose: 0, coat: "white" })
     ctx.restore()
     ctx.save(); ctx.translate(370, gy); ctx.scale(k, k)
-    D.drawCat(ctx, { x: 0, y: 0, dir: -1, mode: "sit", gait: 0, tail: t, blend: 1, groom: old ? 0 : 0.9, grooming: true })
+    D.drawRabbit(ctx, { x: 0, y: 0, dir: -1, pose: 0, up: 1, ears: 1, lift: 0, nose: 0.6, look: 0.3, coat: "white" })
     ctx.restore()
   }))
   P.push(still(who + ": the robin, perched, pecking, flying", 0, 0, 4, (ctx, gy, k) => {

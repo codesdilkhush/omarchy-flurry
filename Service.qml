@@ -793,7 +793,7 @@ Item {
     onTriggered: { stamp = Date.now(); root.computeEnv() }
   }
   onWeatherNowChanged: computeEnv()
-  onCalmActiveChanged: computeEnv()
+  onCalmActiveChanged: { computeEnv(); if (root.calmActive) dismissCritters() }
   onSavedChanged: if (root.loaded) root.computeEnv()
 
   // `flurry season spring` previews the thaw: the snow eases off and melts,
@@ -1108,7 +1108,7 @@ Item {
 
   // Calm mode on, or surprises off: the robin and the hare leave now.
   function dismissCritters() { for (var k in root.scenes) root.scenes[k].dismissCritters() }
-  onCalmActiveChanged: if (root.calmActive) dismissCritters()
+  // (calm mode coming on also sends the visitors away: see onCalmActiveChanged above)
 
   // `flurry diag`: the state of each feature and why it is (or isn't) on.
   function diag() {

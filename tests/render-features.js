@@ -1,6 +1,6 @@
 // Renders a contact sheet of the seasonal and surprise features: icicles
-// and the night glaze, writing in the snow, a bird on a ledge, a cat and its
-// pawprints, New Year fireworks between the windows, spring sprouts and
+// and the night glaze, writing in the snow, a bird on a ledge, a hare and its
+// tracks, New Year fireworks between the windows, spring sprouts and
 // blossom, a snowman being dressed, the bauble finishes and the golden
 // snowflake, a snow globe shake, and the wind off a flung window. Painted
 // with a real Omarchy theme's colours (catppuccin), as the theme sync does.
@@ -114,18 +114,17 @@ const frames = []
   frames.push(paint(w, [win], "A bird lands, hops and pecks", { x: 350, y: 150, k: 4 }))
 }
 
-// 4. A cat walks the ground snow and leaves pawprints.
+// 4. A hare hops along the ground snow and leaves its tracks.
 {
   const w = snowy([], 4)
   settle(w, 16, 2)
   clearSky(w)
-  w.cat = null
-  S.spawnCat(w)
-  w.cat.dir = 1; w.cat.x = -30; w.cat.sat = true
+  S.spawnRabbit(w, { dir: 1 })
+  w.rabbit.stay = 1e9
   S.setEnv(w, { snowScale: 0.15 })
   run(w, [], 7.2)
   clearSky(w)
-  frames.push(paint(w, [], "A cat crosses the snow, leaving pawprints", { x: 290, y: H - 50, k: 2.6 }))
+  frames.push(paint(w, [], "A hare hops across the snow, leaving its tracks", { x: w.rabbit ? w.rabbit.x - 60 : 290, y: H - 50, k: 2.6 }))
 }
 
 // 5. New Year: fireworks between and behind the windows.

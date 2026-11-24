@@ -80,5 +80,5 @@ rows.push(measure("spring: petals and sprouts", scene(w => {
   S.setEnv(w, { spring: 1, petals: 1, sprouts: 1, snowScale: 0 })
   w.sprouts = S.seedSprouts(w); w.sprouts.forEach(p => { p.g = 1 })
 }), N))
-rows.push(measure("surprises: bird, cat and golden flake at once", scene(w => { S.spawnBird(w); S.spawnCat(w); S.spawnGolden(w) }), N))
+rows.push(measure("surprises: bird, hare and golden flake at once", scene(w => { S.spawnBird(w); S.spawnRabbit(w); S.spawnGolden(w) }), N))
 module.exports = rows

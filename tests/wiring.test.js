@@ -39,3 +39,18 @@ test("every bin/flurry command reaches a ShellIpc function", () => {
   for (const c of called) assert.ok(fns.has(c), "no IPC function " + c)
   for (const c of ["plow", "diag", "freeze", "surprise"]) assert.ok(called.has(c), c)
 })
+
+test("no QML object sets a handler, property or function twice (a load error that takes the whole plugin down)", () => {
+  for (const q of fs.readdirSync(root).filter(f => f.endsWith(".qml"))) {
+    const lines = fs.readFileSync(path.join(root, q), "utf8").split("\n")
+    const seen = {}
+    for (const l of lines) {
+      // The root object's own members sit at two spaces.
+      const m = /^  (?:(on[A-Z]\w*):|(?:readonly )?property \S+ (\w+)|function (\w+)\()/.exec(l)
+      if (!m) continue
+      const key = m[1] || m[2] || m[3]
+      assert.ok(!seen[key], `${q}: ${key} is declared twice`)
+      seen[key] = true
+    }
+  }
+})
