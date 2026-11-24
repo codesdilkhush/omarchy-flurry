@@ -35,7 +35,10 @@ PanelWindow {
   readonly property real groundY: height - groundInset
 
   color: "transparent"
-  visible: !!service && (live || decorating || busy)
+  // A visitor (Santa, the Yeti, a delivery) never shows over a fullscreen
+  // app: it waits, paused, until the app leaves fullscreen.
+  visible: !!service && (decorating || (!fullscreenApp && (live || busy)))
+  onVisibleChanged: if (service) service.sceneShown(screenName, visible)
   exclusionMode: ExclusionMode.Ignore
   anchors { top: true; bottom: true; left: true; right: true }
   WlrLayershell.namespace: "flurry"
@@ -65,13 +68,33 @@ PanelWindow {
   // Bumped a few times a second so decorations follow the snow under them.
   property int heapTick: 0
 
+  function freshWorld() {
+    var w = Sim.createWorld(width, height, { effect: service ? service.effect : "snow", intensity: service ? service.intensity : 1, groundInset: groundInset, plow: service ? service.plowOn : true })
+    if (service) Sim.setEnv(w, service.env)
+    return w
+  }
   Component.onCompleted: {
-    world = Sim.createWorld(width, height, { effect: service ? service.effect : "snow", intensity: service ? service.intensity : 1, groundInset: groundInset, plow: service ? service.plowOn : true })
+    world = freshWorld()
     if (service) {
-      Sim.setEnv(world, service.env)
       applyFeatures()
       service.registerScene(screenName, sceneWin)
+      service.sceneShown(screenName, visible)
     }
+  }
+
+  // A world that throws on every frame (state no step can get past) is
+  // started afresh after two seconds of it, instead of costing an exception
+  // a frame for the rest of the session. The snowmen and trees are kept:
+  // they live in the saved state, not in the world.
+  property int stepFailures: 0
+  function recoverWorld() {
+    console.warn("flurry: the scene on " + screenName + " kept failing; starting it afresh")
+    try { Sim.letGo(world) } catch (e) { }
+    world = freshWorld()
+    applyFeatures()
+    surfaceSig = ""
+    stepFailures = 0
+    canvas.requestPaint()
   }
   Component.onDestruction: if (service) service.unregisterScene(screenName, sceneWin)
 
@@ -235,7 +258,13 @@ PanelWindow {
                                         && p.y >= sceneWin.screen.y && p.y < sceneWin.screen.y + sceneWin.height,
                                   stillFor: p.stillFor } : null
         Sim.setStrings(sceneWin.world, sceneWin.stringSpecList)
-        try { Sim.step(sceneWin.world, dt, { pointer: local }) } catch (e) { sceneWin.noteFault("step", e) }
+        try {
+          Sim.step(sceneWin.world, dt, { pointer: local })
+          sceneWin.stepFailures = 0
+        } catch (e) {
+          sceneWin.noteFault("step", e)
+          if (++sceneWin.stepFailures >= 120) { sceneWin.recoverWorld(); return }
+        }
         sceneWin.reportFaults()
         var events = Sim.takeEvents(sceneWin.world)
         for (var e = 0; e < events.length; e++) {
@@ -467,7 +496,7 @@ PanelWindow {
   Timer {
     interval: 3000
     repeat: true
-    running: sceneWin.effectOn
+    running: sceneWin.visible
     onTriggered: {
       sceneWin.checkRiders()
       // Forget windows that are gone for good once their riders are down.
@@ -640,12 +669,15 @@ PanelWindow {
     return !!Sim.launchBall(world, art)
   }
 
+  // Not over a fullscreen app: the visit would wait there unseen.
   function callSanta() {
+    if (fullscreenApp) return false
     if (!santa.running) santa.start()
     return true
   }
 
   function callYeti(targetId) {
+    if (fullscreenApp) return false
     if (yeti.mode === "") yeti.begin(targetId)
     return true
   }

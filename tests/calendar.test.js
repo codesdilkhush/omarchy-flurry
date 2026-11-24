@@ -188,11 +188,13 @@ test("theme: reads Omarchy's colors.toml and derives Flurry's palette", () => {
 
 test("power: /sys/class/power_supply read for battery and AC", () => {
   const laptopOnBattery = "AC|Mains|Unknown||0\nBAT0|Battery|Discharging|64|\nhidpp_battery_0|Battery|Discharging|30|\n"
-  assert.deepStrictEqual(Policy.parsePowerSupply(laptopOnBattery), { known: true, onBattery: true, percent: 64 })
+  assert.deepStrictEqual(Policy.parsePowerSupply(laptopOnBattery), { known: true, battery: true, onBattery: true, percent: 64 })
   const charging = "AC|Mains|Unknown||1\nBAT0|Battery|Charging|64|\n"
   assert.strictEqual(Policy.parsePowerSupply(charging).onBattery, false)
   const desktop = "ucsi-source-psy-USBC000:001|USB|Unknown||0\n"
   assert.strictEqual(Policy.parsePowerSupply(desktop).onBattery, false)
+  // A desktop is known to have no battery after one read, so it is not read again.
+  assert.deepStrictEqual([Policy.parsePowerSupply(desktop).known, Policy.parsePowerSupply(desktop).battery], [true, false])
   assert.strictEqual(Policy.parsePowerSupply("").known, false)
 })
 
