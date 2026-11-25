@@ -77,6 +77,8 @@ you leave it across restarts.
 ## 🚜 The snow plow
 
 <img src="docs/screenshots/plow.jpg" alt="A yellow bulldozer pushing a berm of snow across the bottom of the screen" width="100%">
+<img width="314" height="155" alt="image" src="https://github.com/user-attachments/assets/e780357e-b486-4bc0-a50f-11dfbdcd039a" />
+
 
 When the snow along the bottom gets deep, a little yellow bulldozer drives in, drops its
 blade and shoves it all off the far side. It's part of the simulation, not an animation on
