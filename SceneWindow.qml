@@ -269,7 +269,7 @@ PanelWindow {
         var local = p.present ? { x: p.x - sceneWin.screen.x, y: p.y - sceneWin.screen.y, vx: p.vx, vy: p.vy,
                                   present: p.x >= sceneWin.screen.x && p.x < sceneWin.screen.x + sceneWin.width
                                         && p.y >= sceneWin.screen.y && p.y < sceneWin.screen.y + sceneWin.height,
-                                  stillFor: p.stillFor } : null
+                                  stillFor: p.stillFor, age: p.at ? Math.max(0, Date.now() - p.at) / 1000 : 0 } : null
         Sim.setStrings(sceneWin.world, sceneWin.stringSpecList)
         try {
           Sim.step(sceneWin.world, dt, { pointer: local })
