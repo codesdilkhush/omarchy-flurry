@@ -472,10 +472,31 @@ Item {
       interval = root.pollInterval()
     }
   }
+  // The border Hyprland draws around windows (general:border_size). Window
+  // geometry leaves it out, so the icicles hang from its outer edge. Read
+  // once when the scene first shows and again when Hyprland reloads its
+  // config; nothing polls it.
+  property int windowBorder: 2
+  property bool borderRead: false
+  onShowingChanged: if (showing && !borderRead) readBorder()
+  function readBorder() { borderRead = true; if (!borderProc.running) borderProc.running = true }
+  Process {
+    id: borderProc
+    command: ["hyprctl", "-j", "getoption", "general:border_size"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var o = null
+        try { o = JSON.parse(String(text || "")) } catch (e) { o = null }
+        var b = o ? Number(o.int !== undefined ? o.int : o.value) : NaN
+        if (isFinite(b) && b >= 0 && b <= 20) root.windowBorder = Math.round(b)
+      }
+    }
+  }
   Connections {
     target: Hyprland
     function onRawEvent(event) {
       var name = String(event.name)
+      if (name === "configreloaded") root.readBorder()
       switch (name) {
       case "closewindow":
         root.windowClosed(String(event.data).split(",")[0])

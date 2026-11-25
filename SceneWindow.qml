@@ -117,12 +117,14 @@ PanelWindow {
     function onEnvChanged() { if (sceneWin.world) Sim.setEnv(sceneWin.world, sceneWin.service.env) }
     function onSavedChanged() { sceneWin.applyFeatures() }
     function onThrowOnChanged() { sceneWin.applyFeatures() }
+    function onWindowBorderChanged() { sceneWin.applyFeatures() }
     function onThemeChanged() { canvas.requestPaint() }
   }
 
   function applyFeatures() {
     if (!world || !service) return
-    Sim.setFeatures(world, { gusts: service.saved.windGusts, icicles: service.saved.dayCycle, throwOut: service.throwOn })
+    Sim.setFeatures(world, { gusts: service.saved.windGusts, icicles: service.saved.dayCycle, throwOut: service.throwOn,
+                             border: service.windowBorder })
   }
 
   onLiveChanged: {
