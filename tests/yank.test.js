@@ -59,40 +59,67 @@ function run(w, secs, x, each) {
   }
 }
 
+// Changed in 1.2.5: the ledge no longer turns into a row of clumps at once.
+// It slides off as a sheet (the window slides out from under it), each bit
+// breaking off where the window's trailing edge passes under it, so it
+// still falls where it was. Seen live, the row of clumps riding a shaken
+// window looked like a string of beads.
+function ledgeWorldX(w) {
+  const s = w.surfaces[TERM.id]
+  let m = 0, mx = 0, lo = Infinity
+  s.bins.forEach((b, i) => { if (b > 0.05) { m += b; mx += b * (s.x + (i + 0.5) * S.CELL); lo = Math.min(lo, s.x + i * S.CELL) } })
+  return { m, x: m ? mx / m : NaN, lo }
+}
 for (const V of [1500, 3000]) {
-  test(`a yank to ${V} px/s: the whole ledge is airborne within 3 frames and falls where it was`, () => {
+  test(`a yank to ${V} px/s: the ledge stays where it was while the window slides out from under it, and falls there`, () => {
     const w = scene()
     const ledge = onLedge(w), x0 = ledgeX(w), total = allSnow(w)
     assert.ok(ledge > 600, "a believable ledge: " + ledge)
-    let at3 = null, fastest = 0, dust = 0, mid = null
-    // Reaches V within the first poll, to the left, and keeps going.
+    let at3 = null, fastest = 0, dust = 0, mid = null, offAt = null
     run(w, 1.2, t => -V * t, (f, r) => {
-      const a = airborne(w)
-      if (f === 2) at3 = { air: a.m, x: a.x, onLedge: onLedge(w), total: allSnow(w) }
-      if (f === 24) mid = { x: a.x, win: r.x }
+      if (f === 2) at3 = ledgeWorldX(w)
+      if (f === 24) {
+        // Where the snow is: what has fallen and what the window still holds.
+        const a = airborne(w), l = ledgeWorldX(w)
+        mid = { x: (a.m * a.x + (l.m ? l.m * l.x : 0)) / (a.m + l.m), win: r.x }
+      }
+      if (offAt === null && onLedge(w) < ledge * 0.02) offAt = f * dt
       for (const p of w.particles) {
         assert.ok(isFinite(p.x) && isFinite(p.y) && isFinite(p.vx) && isFinite(p.vy), "no NaN")
-        // Clumps until they land (a hard landing splashes); powder rides the
-        // air, which the window's own wake moves.
         if (p.kind === "clump" && p.y < H - 60) fastest = Math.max(fastest, Math.abs(p.vx))
         if (p.kind === "powder") dust = Math.max(dust, Math.abs(p.vx))
       }
     })
-    assert.ok(at3.air >= ledge * 0.9, `airborne within 3 frames: ${at3.air.toFixed(1)} of ${ledge.toFixed(1)}`)
-    assert.ok(at3.onLedge < ledge * 0.1, `left on the window: ${at3.onLedge.toFixed(1)}`)
-    assert.ok(Math.abs(at3.total - total) < total * 0.002, `mass kept: ${at3.total} of ${total}`)
-    // 0.4 s on, the window is far away and the snow is still where the ledge was.
+    // Three frames in, what is still on the window has not gone with it.
+    assert.ok(Math.abs(at3.lo - TERM.x) < 12, `the ledge's far end stayed put: ${at3.lo.toFixed(0)} vs ${TERM.x}`)
+    // It is all off by the time the window has passed from under it.
+    assert.ok(offAt !== null && offAt < TERM.w / V + 0.15, `off the window after ${offAt} s`)
     assert.ok(mid.win < TERM.x - V * 0.35, "the window has gone: " + mid.win)
-    assert.ok(Math.abs(mid.x - x0) < 40, `the snow stayed: mean x ${mid.x.toFixed(0)}, the ledge was at ${x0.toFixed(0)}`)
+    assert.ok(Math.abs(mid.x - x0) < 60, `the snow fell where it was: mean x ${mid.x.toFixed(0)}, the ledge was at ${x0.toFixed(0)}`)
     assert.ok(fastest < 400, `no piece is thrown (before it lands): fastest ${fastest.toFixed(0)} px/s sideways`)
     assert.ok(dust < S.SNOW.shedMax, `powder stays plausible: ${dust.toFixed(0)} px/s`)
-    // Nothing is left riding or floating, and the snow is on the ground or falling.
     assert.ok(onLedge(w) < ledge * 0.02, "none of it rode along: " + onLedge(w))
     assert.ok(!w.particles.some(p => p.hold), "nothing held up by a window that is gone")
     const after = allSnow(w)
     assert.ok(Math.abs(after - total) < total * 0.03, `mass kept as it falls and lands: ${after} of ${total}`)
   })
 }
+
+test("a window shaken back and forth: the snow sloshes as a sheet, spills over the ends, and what stays is one smooth ledge again", () => {
+  const w = scene()
+  const ledge = onLedge(w), total = allSnow(w)
+  run(w, 3.4, t => t < 2 ? 160 * Math.sin(2 * Math.PI * 2.6 * t) : 0)
+  const s = w.surfaces[TERM.id]
+  assert.ok(!s.loose, "it grips again once the shaking stops")
+  assert.ok(onLedge(w) < ledge * 0.95, "some spilled over the ends: " + onLedge(w).toFixed(0))
+  assert.ok(!w.particles.some(p => p.hold), "no row of clumps riding the window")
+  // No comb: neighbouring cells differ gently.
+  let steep = 0
+  for (let i = 1; i < s.bins.length; i++) steep = Math.max(steep, Math.abs(s.bins[i] - s.bins[i - 1]))
+  assert.ok(steep < 3, "smooth ledge, steepest step " + steep.toFixed(2) + " px")
+  for (let t = 0; t < 3; t += dt) { S.setSurfaces(w, [TERM], w.time, [TERM.id], still(TERM)); S.step(w, dt) }
+  assert.ok(Math.abs(allSnow(w) - total) < total * 0.03, `mass kept: ${allSnow(w)} of ${total}`)
+})
 
 test("a yank breaks the ledge into clumps of a few sizes and a little powder, and they tumble", () => {
   const w = scene()
@@ -118,7 +145,8 @@ test("icicles snap, a perched bird takes off, and the shell hears of the yank", 
   S.takeEvents(w)
   run(w, 0.1, t => -2000 * t)
   assert.ok(w.particles.some(p => p.kind === "shard"), "the icicles fell")
-  assert.ok(s.icicles.every(i => i.len <= 2), "only stubs are left")
+  // Stubs (they may grow back a hair while the snow lies on the window).
+  assert.ok(s.icicles.every(i => i.len <= 2.3), "only stubs are left")
   assert.strictEqual(w.bird.mode, "out")
   const ev = S.takeEvents(w).find(e => e.type === "yank")
   assert.ok(ev && ev.surface === TERM.id && Math.abs(ev.x - TERM.x) < 30, "a yank event where the window was")
@@ -182,5 +210,12 @@ test("mid-drag, a big step with a lagging pointer reading is still a yank", () =
   const r = at(s, -240)
   S.setSurfaces(w, [r], w.time, [TERM.id], { pointer: { x: s.x + 300, y: s.y + 12, vx: -100, vy: 0, present: true, stillFor: 0 }, poll: 0.016, layoutAge: 60 })
   S.step(w, dt)
-  assert.ok(onLedge(w) < ledge * 0.1, "it came off: " + onLedge(w))
+  assert.ok(s.loose, "the bond broke")
+  // The window stopped there: the snow did not go with it. What the window
+  // left from under falls, the rest settles back where it lies on screen.
+  for (let t = 0; t < 1.5; t += dt) { const r2 = at(s, 0); S.setSurfaces(w, [r2], w.time, [TERM.id], still(r2)); S.step(w, dt) }
+  const lw = ledgeWorldX(w)
+  assert.ok(!s.loose, "settled back")
+  assert.ok(lw.lo > r.x + 150, `its left end stayed near where it was: ${lw.lo.toFixed(0)} (window now from ${r.x.toFixed(0)})`)
+  assert.ok(onLedge(w) < ledge * 0.85 && onLedge(w) > ledge * 0.4, "what the window left from under fell: " + onLedge(w).toFixed(0))
 })

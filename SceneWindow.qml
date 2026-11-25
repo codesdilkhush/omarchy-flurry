@@ -127,6 +127,10 @@ PanelWindow {
                              border: service.windowBorder })
   }
 
+  // Turned off: Santa does not finish his crossing over an empty sky. (The
+  // Yeti and the train carry things, so they finish their errand.)
+  onEffectOnChanged: if (!effectOn && santa.running) { santa.running = false; santa.visible = false }
+
   onLiveChanged: {
     if (live || !world) return
     // Off: nothing keeps falling in the background, and the canvas is cleared.
