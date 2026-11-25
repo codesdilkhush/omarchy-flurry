@@ -23,12 +23,22 @@ A snowflake lands on the right of your bar. Click it, pick a weather, and get ba
 Requires Omarchy 4 (Quattro) or later. Gifts between friends also use `curl` and
 `wl-clipboard`, which Omarchy ships.
 
+### Removing
+
+```bash
+omarchy plugin remove itscallssh.flurry
+```
+
+This takes Flurry off your bar and desktop. Your saved trees, snowmen and
+settings live in `~/.local/state/omarchy-flurry` (delete that folder too for a clean slate).
+If you installed the optional Hyprland anchor plugin, also run `hyprpm remove flurry`.
+
 ### Updating
 
 Get the latest fixes and features whenever you like:
 
 ```bash
-omarchy plugin update omarchy-flurry
+omarchy plugin update itscallssh.flurry
 ```
 
 It shows you what changed, asks before applying it, and reloads Flurry. Your
@@ -43,11 +53,11 @@ by hand), so there's nothing to pull from. Reinstall it once; your saved state
 lives outside the plugin folder and stays:
 
 ```bash
-omarchy plugin remove omarchy-flurry --yes
+omarchy plugin remove itscallssh.flurry --yes
 omarchy plugin add https://github.com/itscallssh/omarchy-flurry.git --enable
 ```
 
-From then on `omarchy plugin update omarchy-flurry` works.
+From then on `omarchy plugin update itscallssh.flurry` works.
 </details>
 
 <p align="center"><img src="docs/screenshots/snowfall.gif" alt="Snow falling past a terminal and settling on its top edge" width="720"></p>
