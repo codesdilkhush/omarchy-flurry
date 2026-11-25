@@ -434,6 +434,12 @@ Item {
 
   property real lastMotion: 0
   property real lastPointerMove: 0
+  property real lastSetOff: 0
+  // When the windows were last asked for (the answer is back within a
+  // frame or so). A dragged window's snow is painted ahead of its reading
+  // only until a reading taken after the pointer set off shows it still
+  // (see draw.js leadOf).
+  property real windowsReadAt: 0
   function noteMotion() {
     var idle = Date.now() - root.lastMotion >= 2000
     root.lastMotion = Date.now()
@@ -455,6 +461,9 @@ Item {
   function pollInterval() {
     var now = Date.now()
     if (now - root.lastMotion < 2000) return root.fastPoll
+    // Just set off from rest: this may be a drag starting, so the windows
+    // are read every frame until it shows (see takePointer).
+    if (now - root.lastSetOff < 300) return root.fastPoll
     if (now - root.lastPointerMove < 400) return root.pointerPoll
     return root.idlePoll
   }
@@ -469,7 +478,7 @@ Item {
     repeat: true
     interval: root.idlePoll
     onTriggered: {
-      Hyprland.refreshToplevels()
+      { Hyprland.refreshToplevels(); root.windowsReadAt = Date.now() }
       interval = root.pollInterval()
     }
   }
@@ -519,7 +528,7 @@ Item {
       case "openwindow": case "closewindow": case "movewindowv2": case "changefloatingmode":
       case "fullscreen": case "workspacev2": case "focusedmonv2": case "activewindowv2":
       case "moveworkspacev2": case "activespecial": case "minimized":
-        Hyprland.refreshToplevels()
+        { Hyprland.refreshToplevels(); root.windowsReadAt = Date.now() }
         root.noteMotion()
         clientsSoon.restart()
       }
@@ -561,19 +570,20 @@ Item {
     }
   }
 
-  // 20 times a second while the pointer moves, every frame while a window
-  // is moving (a dragged window's snow is painted from the pointer, see
-  // draw.js leadOf; cursorpos is a cheap request); when it has rested a
-  // couple of seconds, about 7 times, which still catches it setting off.
+  // 30 times a second while the pointer moves, every frame while a window
+  // is moving or the pointer has just set off (a dragged window's snow is
+  // painted from the pointer, see draw.js leadOf; cursorpos is a cheap
+  // request); when it has rested a couple of seconds, about 16 times, so a
+  // drag setting off is caught within a few frames.
   Timer {
     id: cursorPoll
     running: root.wantsPointer && root.showing && root.hyprSocket !== ""
     repeat: true
-    interval: root.pointer.stillFor > 2 ? 150 : 50
+    interval: root.pointer.stillFor > 2 ? 60 : 33
     onTriggered: {
       if (cursorSocket.connected) cursorSocket.connected = false
       cursorSocket.connected = true
-      interval = Date.now() - root.lastMotion < 2000 ? root.fastPoll : (root.pointer.stillFor > 2 ? 150 : 50)
+      interval = Date.now() - root.lastMotion < 2000 || Date.now() - root.lastSetOff < 300 ? root.fastPoll : (root.pointer.stillFor > 2 ? 60 : 33)
     }
   }
 
@@ -587,7 +597,16 @@ Item {
     if (moved) {
       var wasIdle = now - root.lastPointerMove >= 400 && now - root.lastMotion >= 2000
       root.lastPointerMove = now
-      if (wasIdle && windowPoll.running) { windowPoll.interval = root.pointerPoll; windowPoll.restart() }
+      // Setting off after a rest is how every drag begins: read the windows
+      // at once and every frame for a moment, so a dragged window's snow
+      // starts moving with it a frame or two in, not a poll later.
+      if (p.stillFor > 0.08 && windowPoll.running) {
+        root.lastSetOff = now
+        { Hyprland.refreshToplevels(); root.windowsReadAt = Date.now() }
+        windowPoll.interval = root.fastPoll
+        windowPoll.restart()
+        if (cursorPoll.running) { cursorPoll.interval = root.fastPoll; cursorPoll.restart() }
+      } else if (wasIdle && windowPoll.running) { windowPoll.interval = root.pointerPoll; windowPoll.restart() }
     }
     root.pointer = {
       x: x, y: y,
