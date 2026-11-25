@@ -18,7 +18,7 @@ Item {
   width: baseW * size
   height: baseH * size
 
-  readonly property var feet: scene && item ? scene.feetFor(item.place) : null
+  readonly property var feet: scene && item ? scene.feetFor(item.place, kind === "snowman" ? width * 0.36 : 0) : null
   property bool dragging: false
   property real dragX: 0
   property real dragY: 0

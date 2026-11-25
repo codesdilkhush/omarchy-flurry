@@ -88,3 +88,16 @@ test("the shell reads general:border_size once, again on configreloaded, and pas
   assert.match(scene, /border: service\.windowBorder/)
   assert.match(scene, /function onWindowBorderChanged\(\) \{ sceneWin\.applyFeatures\(\) \}/)
 })
+
+test("a snowman on a drift settles across its base, not on the crest", () => {
+  const Sim = require(process.cwd() + "/tests/load")("lib/sim.js")
+  const bins = []
+  for (let i = 0; i < 60; i++) bins.push(i >= 28 && i <= 31 ? 14 : 2)   // one crest, hollows around it
+  const world = { surfaces: { w: { x: 0, y: 500, bins: bins } } }
+  const x = 30 * Sim.CELL
+  const crest = Sim.restingY(world, "w", x)
+  const under = Sim.restingYUnder(world, "w", x, 12 * Sim.CELL)
+  assert.ok(under > crest + 6, "settles below the crest: " + crest + " → " + under)
+  const flat = { surfaces: { w: { x: 0, y: 500, bins: new Array(60).fill(5) } } }
+  assert.ok(Math.abs(Sim.restingYUnder(flat, "w", x, 12 * Sim.CELL) - (500 - 0.85 * 5)) < 1e-9)
+})
