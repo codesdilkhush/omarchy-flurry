@@ -1,33 +1,93 @@
-# Flurry
+<div align="center">
 
-Weather for your [Omarchy](https://omarchy.org) Quattro desktop.
+# ❄️ Flurry
 
-Snow falls over your windows and piles up on their top edges. Fling a window
-and the snow flies off it. Grow Christmas trees and hang baubles, lights and
-candy canes on them, string lights along your windows, roll snowmen and set
-them on your windows, and send them
-to friends on a little train. Santa rides by now and then, and a Yeti may come
-for your snowman.
+**Weather for your [Omarchy](https://omarchy.org) desktop.**
+Snow piles up on your windows, Santa flies by, a winter hare hops through the drifts,
+and a little yellow plow clears it all away.
 
-![Snow piling up on windows](docs/snow.png)
-![Trees, snowmen, Santa, the Yeti and the train](docs/decorations.png)
-![A decorated tree, its lights twinkling](docs/tree.png)
+[![Omarchy 4](https://img.shields.io/badge/Omarchy-4%20Quattro-7aa2f7?style=flat-square)](https://omarchy.org)
+[![Quickshell](https://img.shields.io/badge/Quickshell-0.3-bb9af7?style=flat-square)](https://quickshell.org)
+[![Languages](https://img.shields.io/badge/i18n-English%20%C2%B7%20%D9%81%D8%A7%D8%B1%D8%B3%DB%8C-9ece6a?style=flat-square)](i18n/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-e0af68?style=flat-square)](LICENSE)
 
-## Install
+<img src="docs/screenshots/hero.jpg" alt="Snow on two windows, Christmas trees, snowmen and Santa's sleigh over a sunset wallpaper" width="100%">
+
+</div>
 
 ```bash
 omarchy plugin add https://github.com/itscallssh/omarchy-flurry.git --enable
 ```
 
-The snowflake lands on the right of the bar. Requires Omarchy 4 (Quattro) or
-later. Gifts between friends also need `curl` and `wl-clipboard`, which
-Omarchy ships.
+A snowflake lands on the right of your bar. Click it, pick a weather, and get back to work.
+Requires Omarchy 4 (Quattro) or later. Gifts between friends also use `curl` and
+`wl-clipboard`, which Omarchy ships.
 
-## Use it
+<p align="center"><img src="docs/screenshots/snowfall.gif" alt="Snow falling past a terminal and settling on its top edge" width="720"></p>
+
+## 🌦️ Six kinds of weather
+
+| | | |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/effect-snow.jpg" alt="Snow"> | <img src="docs/screenshots/effect-leaves.jpg" alt="Leaves"> | <img src="docs/screenshots/effect-sakura.jpg" alt="Sakura"> |
+| **Snow**: settles on window tops and the ground, slides off when you fling a window | **Leaves**: pile up and scatter when you brush the pointer through them | **Sakura**: petals drift down and rest on your windows for a while |
+| <img src="docs/screenshots/effect-fireflies.jpg" alt="Fireflies"> | <img src="docs/screenshots/effect-starfall.jpg" alt="Starfall"> | <img src="docs/screenshots/effect-rain.jpg" alt="Rain"> |
+| **Fireflies**: drift about and gather where the pointer rests | **Starfall**: shooting stars that burst into sparks on your windows | **Rain**: splashes where it lands, with lightning now and then |
+
+Scroll on the bar icon to flip through them, or `flurry effect sakura`.
+
+<sub>These six tiles are drawn by Flurry's own simulation and painter (`lib/sim.js`, `lib/draw.js`) over Omarchy theme wallpapers. Every other picture here is a screenshot of the real Omarchy shell.</sub>
+
+## 🎄 Decorate your desktop
+
+<img src="docs/screenshots/decorations.jpg" alt="A decorated tree, a snowman with a blue scarf and a wrapped present on the snowy ground" width="100%">
+
+Plant up to three trees and hang baubles, lights, candy canes and a star on them. Roll
+snowmen and dress them (hat, carrot nose, a scarf in your theme colour), set one on a
+window and it rides along. String lights along any app's windows. Everything stays where
+you leave it across restarts.
+
+## 🚜 The snow plow
+
+<img src="docs/screenshots/plow.jpg" alt="A yellow bulldozer pushing a berm of snow across the bottom of the screen" width="100%">
+
+When the snow along the bottom gets deep, a little yellow bulldozer drives in, drops its
+blade and shoves it all off the far side. It's part of the simulation, not an animation on
+top: the berm grows, chunks tumble off it, and its weight slows the dozer down.
+
+## 🐇 Little visitors
+
+| | |
+|:---:|:---:|
+| <img src="docs/screenshots/hare.jpg" alt="A white winter hare sitting in the snow"> | <img src="docs/screenshots/yeti.jpg" alt="The Yeti walking past a decorated tree"> |
+| **A winter hare** hops along the drifts and bolts when your cursor comes close | **The Yeti** comes for your snowman. Click him and he runs off without it |
+
+A robin perches on your windows, Santa rides by now and then (click him for a present), and
+very rarely a golden snowflake falls. Catch it for a new bauble finish.
+
+## ❄️ Icicles, spring and New Year
+
+<img src="docs/screenshots/icicles.jpg" alt="Icicles hanging under a terminal window" width="100%">
+
+On cold nights the windows freeze: icicles grow, frost creeps into the corners and the snow
+glazes over. In the two weeks before **Nowruz** the snow thaws, sprouts come up and a brown
+hare comes out. At midnight on January 1st there's a quiet countdown and fireworks behind
+your windows.
+
+<img src="docs/screenshots/spring.jpg" alt="Spring: a brown hare by the tree, sprouts coming up through the melting snow" width="100%">
+
+## 🎛️ The panel, in English and Persian
+
+<p align="center"><img src="docs/screenshots/panel-en-fa.png" alt="The Flurry panel in English and in Persian" width="720"></p>
+
+Click the snowflake for the panel: a live preview, the six effects, the amount, big on/off
+switches for the **Snow plow**, **Snowballs**, **Santa and the Yeti** and **Little visitors**,
+and quick actions. **World** has live weather, melting, seasons and calm mode; **Friends**
+has your friend code and gifts. It follows Omarchy's language setting.
 
 | | |
 |---|---|
-| Click the bar icon | The panel: a live preview, effects, amount, the big switches, actions, friends |
+| Click the bar icon | Open the panel |
 | Right-click it | Weather on or off |
 | Scroll on it | Next or previous effect |
 | Drag a decoration | Move it; drop a snowman on a window's top edge and it rides that window |
@@ -36,26 +96,25 @@ Omarchy ships.
 | Click Santa | He drops a present |
 | Click the Yeti | He runs off without your snowman |
 
-### The panel
+## 🎁 Send gifts to friends
 
-Click the snowflake for the panel. A live preview at the top runs the real simulation in miniature (the hare drops by when it would come to your desktop), then three views:
+1. **Set up friends** in the panel, then **Copy my code** and send it to a friend.
+2. Copy their code and press **Add from clipboard** (or `flurry add <code>`).
+3. Right-click a snowman or tree, **Send to …**. A little train comes for it and pulls up on
+   your friend's desktop. Notes go the same way, and you can even throw snowballs over.
 
-- **Scene**: the six effects as tiles, the amount, big switches for the **Snow plow**, **Snowballs**, **Santa and the Yeti** and **Little visitors** (with a line saying whether the hare can come now, and why not), and quick actions: Decorate, Shake, Plow, Santa, Hare, Freeze.
-- **World**: live weather, melting and icicles, wind from windows, spring at Nowruz, New Year fireworks, writing in the snow, theme colours, battery and calm mode.
-- **Friends**: your code, adding friends, notes, and throwing snowballs to them.
+## 🪶 Light on your machine
 
-The panel follows Omarchy's language setting; it ships in English and Persian (`i18n/`).
+While it's off or hidden, Flurry stops watching your windows and pointer entirely. It pauses under
+fullscreen apps, slows down on battery, and has a calm mode for work hours. A full-snow frame
+costs about 0.25 ms of simulation on a 2560×1440 screen.
 
-### Six kinds of weather
+---
 
-- **Snow** settles on window tops and the ground. Drag a window gently and it rides along; jerk or fling it and the snow slides, tears off the trailing edge and falls; stop hard and it's thrown forward. Close a window and its snow drops.
-- **Leaves** pile up and scatter when you brush the pointer through them.
-- **Starfall**: shooting stars that burst into sparks on your windows.
-- **Rain** splashes where it lands, with lightning now and then.
-- **Sakura** petals drift down and rest on your windows for a while.
-- **Fireflies** drift about and gather where the pointer rests.
+## The details
 
-### How the snow behaves
+<details>
+<summary><b>How the snow behaves</b></summary>
 
 Every falling thing shares one gravity. Flakes, powder and petals reach their
 fall speed through drag in moving air: a slow wind, gusts that vary across the
@@ -86,7 +145,10 @@ frame the snow feels gravity minus the window's acceleration:
   workspace keeps its snow until you come back. Resizing keeps the snow where
   it lies and drops what the window no longer reaches.
 
-### The snow plow
+</details>
+
+<details>
+<summary><b>More about the snow plow</b></summary>
 
 When snow along the bottom of the screen gets deep (on average 42% of the
 way to full), a yellow bulldozer drives in from the edge with its blade up,
@@ -114,7 +176,10 @@ switch is on, and is refused with a message ("the snow plow is off") while
 it is off. Switch it off while one is out and it doesn't stop or vanish: it
 finishes its pass a little quicker, blade down, and drives off the far side.
 
-### Snowballs
+</details>
+
+<details>
+<summary><b>Snowballs</b></summary>
 
 Press on snow that's lying deep enough (the pointer turns into an open hand
 over it) and a lumpy handful comes up. Drag it along the snow and it rolls:
@@ -154,7 +219,11 @@ the middle of each swing. Resting ones slide to a stop, come off a window that
 lurches harder than they can hold, and lift in strong gusts. Snowmen standing
 on a window rock on a damped spring when it is dragged.
 
-### Decorate
+
+</details>
+
+<details>
+<summary><b>Decorate</b></summary>
 
 Pick **Decorate** in the menu (or `flurry decorate`). A toolbar appears: plant
 up to three trees, roll snowmen, then click a tree with the bauble, lights,
@@ -169,7 +238,10 @@ gold star. Its bulbs breathe rather than blink, each on its own slow rhythm.
 They light the needles around them, put small coloured glints in the
 baubles beside them, and the star glows with soft rays.
 
-### Lights on your windows
+</details>
+
+<details>
+<summary><b>Lights on your windows</b></summary>
 
 Pick **Window lights** in the toolbar and click a window: a string of
 lights hangs along its top edge. Click again for other colours (warm white,
@@ -187,7 +259,10 @@ on the window under them, and windows in front hide them like anything else.
 
 ![A light string swinging as its window is dragged](docs/window-lights.png)
 
-### Friends and the little train
+</details>
+
+<details>
+<summary><b>Friends and the little train</b></summary>
 
 1. **Set up friends** in the menu, then **Copy my code** and send it to a friend.
 2. Copy their code and press **Add from clipboard** (or `flurry add <code>`).
@@ -200,19 +275,24 @@ has your code can, though, so share it with friends only. To use your own
 ntfy server, set `"server"` in `~/.local/state/omarchy-flurry/state.json`.
 Incoming gifts are size-checked and validated before anything is drawn.
 
-### Shake the globe
+</details>
+
+<details>
+<summary><b>Shake, wind, writing, live weather, icicles, theme and seasons</b></summary>
+
+#### Shake the globe
 `flurry shake`, or the **Shake** button in the menu, lifts the settled snow back into the air. Mass is conserved as it lifts. Three slow eddies turn it over, the decorations rock, and it all settles again.
 
-### Wind from your windows
+#### Wind from your windows
 When you fling a window faster than about 140 px/s, it sheds the snow sitting on top of it. The gust also pushes nearby falling flakes and loose powder. Toggle with `flurry gusts`.
 
-### Write in the snow
+#### Write in the snow
 Hold **Ctrl** and drag across the snow to cut a groove with a lit rim. New snow fills it in over time. Writing needs **Snowballs** turned on, since it uses the same touch areas. Toggle with `flurry writing`.
 
-### Live weather
+#### Live weather
 This is off by default. Turn it on with `flurry city <name>` or `flurry location <lat> <lon>`, and control it with `flurry weather on|off|now`. It reads Open-Meteo every 15 minutes, with no API key. Snowfall, wind direction, wind speed and temperature drive the scene. The last reading is cached for up to 3 hours, and a failed fetch backs off quietly.
 
-### Day, thaw and icicles
+#### Day, thaw and icicles
 In the warm hours of the day, snow slowly settles and melts. In the cold (with live weather off, a winter night counts as about −4 °C and a winter afternoon as about +1 °C) the windows freeze:
 
 - **Icicles** grow within a minute or two on every window that has snow on top. They hang from the bottom edge when there is room under it (a floating window), and from the top edge, under the snow like eaves, when there isn't: on a tiled desktop the bottom edges sit on the next window or the ground, where nothing would show. Under the snow they stay shorter, so they never cover much of the window. In a thaw they drip a single drop at a time and shrink; a jerk of the window snaps them off, long ones first.
@@ -221,14 +301,18 @@ In the warm hours of the day, snow slowly settles and melts. In the cold (with l
 
 `flurry freeze` freezes the windows in view at once, whatever the weather or the hour, to check it works (they then follow the weather as usual). Toggle the whole thing with `flurry daycycle` (**Melting, icicles, night glaze** in the menu).
 
-### Follows your Omarchy theme
+#### Follows your Omarchy theme
 Flurry reads `~/.local/state/omarchy/current/theme/colors.toml` and tints the window lights, the snowman's scarf and the snow's shadows to match. It updates live when you switch themes. The light strings also get a **theme** palette. Toggle with `flurry theme`.
 
-### Seasons
+#### Seasons
 - **New Year:** a quiet 10-second countdown at local midnight on Jan 1, then about 100 seconds of minimal fireworks behind your windows. Preview them with `flurry fireworks [seconds]`. Toggle with `flurry newyear`.
 - **Spring:** in the 14 days before Nowruz (the March equinox), the snow stops and thaws, green sprouts come up along the ground, and petals drift down in place of flakes. Spring lasts until Sizdah Bedar. Preview it with `flurry season spring|winter|auto`. Toggle with `flurry seasons`.
 
-### Little surprises
+</details>
+
+<details>
+<summary><b>Little surprises</b></summary>
+
 The first visitor comes a minute or two after Flurry starts, then one every two and a half to five minutes, never the same one twice running unless it's the only one that can come.
 
 - **A robin** lands on a window ledge (snowy or bare, even one right under the bar), on the plow's roof, or on the ground. It hops, pecks, cocks its head, leaves tiny footprints, and flies off when your cursor comes close, its window moves, or a snowball flies near.
@@ -249,15 +333,22 @@ The robin also stays away in strong wind (live weather). Nothing comes while cal
 
 Click a snowman to dress it one piece at a time: hat, carrot nose, then a scarf in your theme colour. Its outfit is remembered.
 
-### Throw a snowball to a friend
+![The robin, the hare and a frozen window](docs/critters.png)
+
+</details>
+
+<details>
+<summary><b>Throwing to friends, calm mode, and how the snow treats your windows</b></summary>
+
+#### Throw a snowball to a friend
 This is opt-in. Pick a friend with `flurry throwto <friend>` and turn it on with `flurry throwing`. Throw a snowball off the edge of your screen faster than about 1150 px/s and it travels over ntfy. It flies in from the matching side of your friend's desktop and bursts on the first thing it hits.
 
-### Calm, fullscreen and battery
+#### Calm, fullscreen and battery
 - Flurry pauses while a fullscreen window is active.
 - On battery it runs at 30 fps, and below 20% charge at 24 fps.
 - `flurry calm on|off|work` turns off surprises and fireworks and softens the snow. With `work`, calm mode applies only during the `workHours` set in `state.json`.
 
-### How the snow treats your windows
+#### How the snow treats your windows
 - Falling snow is drawn behind windows and only settles on their top edges. It never covers what's inside a window.
 - A window's ledge snow, icicles, lights, snowmen, perched birds and resting snowballs are tied to that window's Hyprland address. When the window closes or leaves the workspace or monitor, they're released straight away: the ledge falls as loose snow and nothing is left floating.
 - `hyprctl -j clients` decides which windows exist. Flurry checks it every 2 s and after every window event, and ignores any reply that arrived before a window closed.
@@ -266,6 +357,9 @@ This is opt-in. Pick a friend with `flurry throwto <friend>` and turn it on with
 - A window that moves with no pointer dragging it keeps its snow: the snow moves with it and nothing is read as a jolt. That covers a tiling relayout, a workspace switch, a keyboard move, and a window opening, closing, floating or going fullscreen. Hyprland reports no button state while you drag, so a drag is recognised by the pointer instead. It has to be moving, on the window or within a poll's travel of it, going the same way, and no layout event can have fired in the last 0.3 s. The first sample of a drag comes after the idle poll, so its speed is taken over the poll gap plus the 50 ms pointer poll. A long gap is therefore not mistaken for a huge speed, and a real yank is not mistaken for a jump. During an active drag, a big step counts as a yank even if the pointer reading lags.
 - The air a moving window stirs up eases in and out.
 - The first little surprise shows up 60 to 110 seconds after start, then one every 2.5 to 5 minutes. Icicles form within a minute or two in cold weather.
+
+</details>
+
 
 ## From the terminal
 

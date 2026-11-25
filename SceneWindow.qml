@@ -23,7 +23,13 @@ PanelWindow {
   readonly property string screenName: screen ? String(screen.name) : ""
   readonly property bool decorating: !!service && service.decorating === screenName
   readonly property bool effectOn: !!service && service.isOn
-  readonly property bool fullscreenApp: !!workspace && workspace.hasFullscreen && fullscreenMode() >= 2
+  // Whether a fullscreen app covers this screen. Read straight from
+  // Hyprland, then applied a moment later: hiding the scene changes what
+  // Hyprland reports in the same pass, and a direct binding would loop.
+  readonly property bool fullscreenNow: !!workspace && workspace.hasFullscreen && fullscreenMode() >= 2
+  property bool fullscreenApp: false
+  onFullscreenNowChanged: Qt.callLater(syncFullscreen)
+  function syncFullscreen() { if (fullscreenApp !== fullscreenNow) fullscreenApp = fullscreenNow }
   readonly property bool live: effectOn && !fullscreenApp
   readonly property bool busy: santa.running || yeti.mode !== "" || train.mode !== ""
 
@@ -74,6 +80,7 @@ PanelWindow {
     return w
   }
   Component.onCompleted: {
+    syncFullscreen()
     world = freshWorld()
     if (service) {
       applyFeatures()

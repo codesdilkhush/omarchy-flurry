@@ -75,5 +75,17 @@
   "friends.sendNote": "Send the note",
   "friends.remove": "Remove",
   "friends.notePlaceholder": "A note for a friend…",
-  "friends.throwTo": "Snowballs go to %1"
+  "friends.throwTo": "Snowballs go to %1",
+  "why.surprisesOff": "surprises are off",
+  "why.calm": "calm mode",
+  "why.fullscreen": "a fullscreen app is up",
+  "why.lowBattery": "battery is low",
+  "why.decorating": "decorating",
+  "why.dragging": "a window is moving",
+  "why.plow": "the plow is out",
+  "why.noSprouts": "no sprouts up yet",
+  "why.onlySnow": "the hare comes only in snow",
+  "why.noGroundSnow": "no snow on the ground yet",
+  "why.off": "Flurry is off",
+  "why.noScreen": "no screen"
 }

@@ -527,9 +527,14 @@ Item {
       flush()
     }
     parser: SplitParser {
+      // Hyprland answers "x, y" with no newline, so take each chunk as it comes.
+      splitMarker: ""
       onRead: function(line) {
         var m = /^\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/.exec(String(line))
         if (m) root.takePointer(Number(m[1]), Number(m[2]))
+        // Hyprland closes its end once it has answered; closing ours first
+        // keeps Quickshell from logging a PeerClosedError on every poll.
+        cursorSocket.connected = false
       }
     }
   }
