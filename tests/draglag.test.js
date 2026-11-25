@@ -54,7 +54,9 @@ test("a sudden pull up never sinks a window's snow into it, from the first sampl
   const on = (r, vx, vy, still) => ({ x: r.x + grab.x, y: r.y + grab.y, vx, vy, present: true, stillFor: still, age: dt })
   const rest = on(term, 0, 0, 2)
   for (let t = 0; t < 3; t += dt) { S.setSurfaces(w, [term], w.time, [term.id], { pointer: rest, poll: 0.2, layoutAge: 30 }); S.step(w, dt, { pointer: rest }) }
-  const LAG = 4, hist = []
+  // The window is read with the pointer, in one request (the snapshot, see
+  // Policy.parseCursorReply): the same frame's reading as the pointer's.
+  const LAG = 1, hist = []
   let worst = 0, armed = false
   for (let f = 0; f <= 40; f++) {
     const y = f * dt < 0.18 ? -1800 * f * dt : -324
@@ -62,7 +64,10 @@ test("a sudden pull up never sinks a window's snow into it, from the first sampl
     hist.push(shown)
     const c0 = hist[Math.max(0, hist.length - 2)], c1 = hist[Math.max(0, hist.length - 3)]
     const ptr = on(c0, 0, (c0.y - c1.y) / dt, c0.y === c1.y ? 1 : 0)
-    S.setSurfaces(w, [hist[Math.max(0, hist.length - 1 - LAG)]], w.time, [term.id], { pointer: ptr, poll: 0.016, layoutAge: 30 })
+    const rd = hist[Math.max(0, hist.length - 1 - LAG)]
+    const sv = w.surfaces.t
+    if (sv && sv.x === rd.x && sv.y === rd.y) S.noteStill(w, [term.id])
+    else S.setSurfaces(w, [rd], w.time, [term.id], { pointer: ptr, poll: 0.016, layoutAge: 30 })
     S.step(w, dt, { pointer: ptr })
     const s = w.surfaces.t
     if (s.dragT !== undefined) armed = true
@@ -76,9 +81,12 @@ test("a sudden pull up never sinks a window's snow into it, from the first sampl
 })
 
 // Jerked up and down, as in the user's recording: the compositor moves the
-// window with the pointer every frame; the shell reads the pointer every
-// frame (a little old), the windows every frame but a couple of frames
-// late, and what is painted shows a frame later.
+// window with the pointer every frame; the shell reads the pointer and the
+// focused window together every frame (a little old: the snapshot, see
+// Policy.withSnapshot), hears of a reading that changed nothing as the
+// window standing still (Sim.noteStill), and what is painted shows a frame
+// later. (Before the snapshot, the window came from the window list a
+// couple of frames late and the snow was placed from the pointer.)
 function jerk(scen) {
   const base = { id: "t", x: 420, y: 300, w: 900, h: 460, floating: true, z: 0 }, grab = { x: 400, y: 200 }
   const w = S.createWorld(1920, 1080, { effect: "snow", intensity: 1, plow: false })
@@ -93,8 +101,11 @@ function jerk(scen) {
     smooth = { vx: smooth ? smooth.vx * 0.4 + vx * 0.6 : 0, vy: smooth ? smooth.vy * 0.4 + vy * 0.6 : 0 }
     last = pt; lastT = t
     const ptr = { x: base.x + grab.x + pt.x, y: base.y + grab.y + pt.y, vx: smooth.vx, vy: smooth.vy, present: true, stillFor, age: 0.004 }
-    const seen = scen.win(t - 0.03)
-    S.setSurfaces(w, [{ ...base, x: Math.round(base.x + seen.x), y: Math.round(base.y + seen.y) }], w.time, [base.id], { pointer: ptr, poll: dt, layoutAge: 30 })
+    const seen = scen.win(t - 0.004)
+    const rd = { ...base, x: Math.round(base.x + seen.x), y: Math.round(base.y + seen.y) }
+    const sv = w.surfaces[base.id]
+    if (sv && sv.x === rd.x && sv.y === rd.y) S.noteStill(w, [base.id])
+    else S.setSurfaces(w, [rd], w.time, [base.id], { pointer: ptr, poll: dt, layoutAge: 30 })
     S.step(w, dt, { pointer: ptr, readAgo: 0 })
     const s = w.surfaces.t, ld = D.leadOf(w, s) || { x: 0, y: 0 }
     const off = s.y + ld.y - (base.y + scen.win(t + dt).y)
@@ -130,7 +141,20 @@ test("jerked up and down, the snow never sinks into the window's top on the way 
   const dy = t => t < 0.4 ? 0 : t < 1.73 ? -100 * Math.sin((t - 0.4) * 6 * Math.PI) * Math.min(1, (t - 0.4) * 8) : 0
   const r = jerk({ frames: 100, win: t => ({ x: 0, y: dy(t) }), ptr: t => ({ x: 0, y: dy(t) }), phase: t => t > 0.6 && t < 1.7 ? "shake" : "" })
   const worst = Math.max(...r.filter(q => q.ph === "shake").map(q => q.sunk))
-  assert.ok(worst < 8, `sank ${worst.toFixed(1)} px into the window`)
+  // A frame at each turn (the window, 100 px each way three times a second,
+  // turns faster than one frame's prediction can follow). Was < 8 with the
+  // pointer-led painting in this harness's idealised feed, where the
+  // pointer offset could never go stale; the snow's place now comes from
+  // the window's own readings, and up and down are carried alike so the
+  // icicles under it do not rise into it either (next test).
+  assert.ok(worst < 10, `sank ${worst.toFixed(1)} px into the window`)
+})
+
+test("jerked up and down, the icicles never rise into the window's bottom on the way down", () => {
+  const dy = t => t < 0.4 ? 0 : t < 1.73 ? -100 * Math.sin((t - 0.4) * 6 * Math.PI) * Math.min(1, (t - 0.4) * 8) : 0
+  const r = jerk({ frames: 100, win: t => ({ x: 0, y: dy(t) }), ptr: t => ({ x: 0, y: dy(t) }), phase: t => t > 0.6 && t < 1.7 ? "shake" : "" })
+  const worst = Math.max(...r.filter(q => q.ph === "shake").map(q => -q.sunk))
+  assert.ok(worst < 10, `rose ${worst.toFixed(1)} px into the window`)
 })
 
 test("held still mid-drag, then pulled up: the snow goes up with it, not into it", () => {

@@ -87,5 +87,8 @@
   "why.onlySnow": "the hare comes only in snow",
   "why.noGroundSnow": "no snow on the ground yet",
   "why.off": "Flurry is off",
-  "why.noScreen": "no screen"
+  "why.noScreen": "no screen",
+  "sound": "Sound",
+  "sound.desc": "Rain, thunder with the lightning, rustling leaves, crickets...",
+  "sound.volume": "Volume"
 }

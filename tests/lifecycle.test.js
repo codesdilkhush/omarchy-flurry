@@ -117,7 +117,9 @@ test("a jump with no pointer behind it (a snap, a layout change) moves the snow 
 })
 
 test("a smooth drag: the snow rides along; nothing bursts, no sheets, speeds stay plausible", () => {
-  const w = scene(60)
+  // A ledge as deep as 60 s of snow built before windows caught it faster
+  // (TUNING.snow.windowCatch): a ledge filled to the cap sheds more, by design.
+  const w = scene(Math.round(60 / S.TUNING.snow.windowCatch))
   S.setEnv(w, { snowScale: 0 }); w.particles = []
   const had = ledge(w)
   let most = 0, fastest = 0, x = 0, y = 0
@@ -211,7 +213,7 @@ test("surprises come within a minute or two: a bird on a bare ledge, a hare on b
   assert.ok(w.rabbit && isFinite(w.rabbit.x) && isFinite(w.rabbit.y))
 })
 
-test("drawing: falling snow is painted in front of windows, rain behind them", { skip: !createCanvas && "needs @napi-rs/canvas" }, () => {
+test("drawing: falling snow, shed clumps and rain are all painted behind windows, never over their content", { skip: !createCanvas && "needs @napi-rs/canvas" }, () => {
   const D = load("lib/draw.js")
   const r = { id: "0x1", x: 200, y: 150, w: 400, h: 300, floating: true, z: 0 }
   const face = (kinds) => {
@@ -230,8 +232,9 @@ test("drawing: falling snow is painted in front of windows, rain behind them", {
     for (let i = 3; i < px.length; i += 4) if (px[i] > 8) painted++
     return painted
   }
-  // Flakes and the clumps a window sheds are seen falling over windows too.
-  assert.ok(face(["flake", "clump", "powder"]) > 200, "snow shows over the window's face")
-  // Rain still falls behind them.
+  // Since the window-attachment fix (2026-11-25) nothing in the air is
+  // painted over a window's content: flakes and shed clumps fall behind
+  // windows, as rain always did (draw.js world, drawHeaps clears faces).
+  assert.strictEqual(face(["flake", "clump", "powder"]), 0, "snow over the window's face")
   assert.strictEqual(face(["drop"]), 0, "rain over the window's face")
 })

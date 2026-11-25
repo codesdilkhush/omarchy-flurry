@@ -10,6 +10,7 @@ import "lib/season.js" as Season
 import "lib/weather.js" as Weather
 import "lib/theme.js" as Theme
 import "lib/policy.js" as Policy
+import "lib/sound.js" as Snd
 import "lib/draw.js" as Draw
 
 // Flurry's headless core. Owns the saved state, the per-screen scenes, the
@@ -78,6 +79,8 @@ Item {
   function setPlow(on) { update(function(s) { s.plow = !!on }) }
   function setSnowballs(on) { update(function(s) { s.snowballs = !!on }) }
   function setBatterySaver(on) { update(function(s) { s.batterySaver = !!on }) }
+  function setSound(on) { update(function(s) { s.sound = !!on }) }
+  function setSoundVolume(v) { update(function(s) { s.soundVolume = Math.max(0, Math.min(1, Number(v))) }) }
   // The newer switches, all by name (see Store.defaults for what each does).
   readonly property var flagNames: ["shake", "windGusts", "writing", "dayCycle", "seasons", "newYear", "surprises",
                                     "themeSync", "throwToFriends", "liveWeather"]
@@ -549,47 +552,180 @@ Item {
     return dir && sig ? dir + "/hypr/" + sig + "/.socket.sock" : ""
   }
 
+  // The focused window as Hyprland had it at the same instant as the
+  // pointer reading: { id ("0x" + hex), x, y, w, h (global layout px),
+  // at (ms) }, or null. A dragged window is the focused one, and the window
+  // list (refreshToplevels) answers a poll or two behind the compositor, so
+  // the scenes take this window's rectangle from here while it is fresh
+  // (see Policy.withSnapshot): its snow is then kept and painted where the
+  // window really is, instead of trailing it as a line.
+  property var focusSnap: null
+  property int focusSeq: 0
+  // Older Hyprland that cannot answer the batch: the plain cursorpos.
+  property bool cursorBatch: true
+
   Socket {
     id: cursorSocket
     path: root.hyprSocket
+    property string buf: ""
     onConnectedChanged: {
-      if (!connected) return
-      write("cursorpos")
+      if (!connected) {
+        // Hyprland closed its end: whatever came is all there is.
+        if (buf !== "") root.takeCursorReply(buf, true)
+        buf = ""
+        return
+      }
+      buf = ""
+      write(root.cursorBatch ? Policy.CURSOR_BATCH : "cursorpos")
       flush()
     }
     parser: SplitParser {
-      // Hyprland answers "x, y" with no newline, so take each chunk as it comes.
+      // Hyprland writes the reply with no closing newline, possibly in
+      // more than one chunk, so the chunks are gathered until it reads whole.
       splitMarker: ""
-      onRead: function(line) {
-        var m = /^\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/.exec(String(line))
-        if (m) root.takePointer(Number(m[1]), Number(m[2]))
+      onRead: function(chunk) {
+        cursorSocket.buf += String(chunk)
         // Hyprland closes its end once it has answered; closing ours first
         // keeps Quickshell from logging a PeerClosedError on every poll.
-        cursorSocket.connected = false
+        if (root.takeCursorReply(cursorSocket.buf, false)) { cursorSocket.buf = ""; cursorSocket.connected = false }
       }
     }
   }
+  // True once the reply was read (or given up on).
+  function takeCursorReply(text, whole) {
+    var r = Policy.parseCursorReply(text)
+    if (r.state === "partial" && !whole) return false
+    if (r.state !== "ok") {
+      // Not understood: fall back to the plain request from now on.
+      if (root.cursorBatch) { root.cursorBatch = false; console.warn("flurry: the pointer batch was not understood; using cursorpos") }
+      return true
+    }
+    var now = Date.now()
+    var k = r.win ? root.addrKey(r.win.address) : ""
+    root.focusSnap = k ? { id: "0x" + k, x: r.win.x, y: r.win.y, w: r.win.w, h: r.win.h, at: now } : null
+    root.focusSeq++
+    root.takePointer(r.x, r.y)
+    return true
+  }
 
-  // 30 times a second while the pointer moves, every frame while a window
-  // is moving or the pointer has just set off (a dragged window's snow is
-  // painted from the pointer, see draw.js leadOf; cursorpos is a cheap
-  // request); when it has rested a couple of seconds, about 16 times, so a
-  // drag setting off is caught within a few frames.
+  // 30 times a second, every frame while a window is moving or the pointer
+  // has just set off (cursorpos and activewindow are cheap requests): a
+  // dragged window's rectangle is read from here (see focusSnap), so a drag
+  // setting off is caught within a couple of frames. It runs for every
+  // effect, since every effect lays something on the windows; the pointer
+  // itself is only handed on for the effects that use it (wantsPointer).
   Timer {
     id: cursorPoll
-    running: root.wantsPointer && root.showing && root.hyprSocket !== ""
+    running: root.showing && root.hyprSocket !== ""
     repeat: true
-    interval: root.pointer.stillFor > 2 ? 60 : 33
+    interval: 33
     onTriggered: {
       if (cursorSocket.connected) cursorSocket.connected = false
       cursorSocket.connected = true
-      interval = Date.now() - root.lastMotion < 2000 || Date.now() - root.lastSetOff < 300 ? root.fastPoll : (root.pointer.stillFor > 2 ? 60 : 33)
+      interval = Date.now() - root.lastMotion < 2000 || Date.now() - root.lastSetOff < 300 ? root.fastPoll : 33
     }
   }
 
+
+  // ------------------------------------------- the compositor plugin
+  //
+  // With hyprland-plugin/ (flurry-anchor) loaded, the compositor paints
+  // what lies on each window (frost, ledge, icicles) with the window, in
+  // the frame it moves it, from strips the scenes render (SceneWindow
+  // anchor*). Without it the overlay paints them, a few frames behind a
+  // moving window. Requests go over Hyprland's socket one batch at a time.
+  property bool anchorAvailable: false
+  readonly property string anchorDir: {
+    var d = Quickshell.env("XDG_RUNTIME_DIR")
+    return d ? d + "/flurry-anchor" : ""
+  }
+  property bool anchorDirReady: false
+  Process {
+    id: makeAnchorDir
+    command: ["mkdir", "-p", root.anchorDir]
+    running: root.anchorDir !== ""
+    onExited: function(code) { root.anchorDirReady = code === 0 }
+  }
+  property var anchorQueue: []
+  property bool anchorBusy: false
+  // Send a batch of `n` requests; done(replyText or null) when answered.
+  function anchorSend(text, n, done) {
+    if (!text || root.hyprSocket === "") { if (done) done(null); return }
+    root.anchorQueue = root.anchorQueue.concat([{ text: text, n: n, done: done }])
+    if (!root.anchorBusy) root.anchorNext()
+  }
+  function anchorNext() {
+    if (!root.anchorQueue.length) { root.anchorBusy = false; return }
+    root.anchorBusy = true
+    anchorSocket.job = root.anchorQueue[0]
+    root.anchorQueue = root.anchorQueue.slice(1)
+    anchorSocket.buf = ""
+    anchorStall.restart()
+    anchorSocket.connected = true
+  }
+  function anchorFinish() {
+    anchorStall.stop()
+    var job = anchorSocket.job, text = anchorSocket.buf
+    anchorSocket.job = null
+    anchorSocket.buf = ""
+    if (job && job.done) { try { job.done(text) } catch (e) { console.warn("flurry: anchor reply: " + e) } }
+    root.anchorNext()
+  }
+  Socket {
+    id: anchorSocket
+    path: root.hyprSocket
+    property var job: null
+    property string buf: ""
+    onConnectedChanged: {
+      if (connected) {
+        if (job) { write(job.text); flush() }
+        return
+      }
+      if (job) root.anchorFinish()
+    }
+    parser: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        anchorSocket.buf += String(chunk)
+        // Every answer in: close our end first (as the pointer feed does).
+        var job = anchorSocket.job
+        if (job && anchorSocket.buf.split("\n\n\n").length >= job.n && anchorSocket.buf.trim() !== "") anchorSocket.connected = false
+      }
+    }
+  }
+  // Hidden or off: nothing the compositor plugin holds stays on the windows.
+  Connections {
+    target: root
+    function onShowingChanged() { if (!root.showing && root.anchorAvailable) root.anchorSend(Policy.anchorBatch([Policy.ANCHOR_CLEAR_ALL]), 1, null) }
+  }
+  Timer {
+    id: anchorStall
+    interval: 600
+    onTriggered: { if (anchorSocket.connected) anchorSocket.connected = false; else if (anchorSocket.job) root.anchorFinish() }
+  }
+  // Whether the plugin is there, asked every few seconds; the same ping
+  // tells the plugin Flurry is still running (it stops drawing what Flurry
+  // left once Flurry falls silent).
+  Timer {
+    interval: root.anchorAvailable ? 4000 : 8000
+    repeat: true
+    running: root.showing && root.hyprSocket !== "" && root.anchorDirReady
+    triggeredOnStart: true
+    onTriggered: root.anchorSend(Policy.anchorBatch([Policy.ANCHOR_PING]), 1, function(text) {
+      var ok = Policy.anchorPingOk(String(text || "").trim())
+      // Found it: whatever an earlier session left on the windows goes first.
+      if (ok && !root.anchorAvailable) root.anchorSend(Policy.anchorBatch([Policy.ANCHOR_CLEAR_ALL]), 1, null)
+      if (ok !== root.anchorAvailable) console.log("flurry: compositor plugin " + (ok ? "found: frost and snow ride the windows" : "not loaded: the overlay paints the windows' snow"))
+      root.anchorAvailable = ok
+    })
+  }
+
+  // The pointer as last read, whether or not the effect uses it.
+  property var cursor: ({ x: 0, y: 0, vx: 0, vy: 0, present: false, stillFor: 0, at: 0 })
+  readonly property var noPointer: ({ x: 0, y: 0, vx: 0, vy: 0, present: false, stillFor: 0, at: 0 })
   function takePointer(x, y) {
     var now = Date.now()
-    var p = root.pointer
+    var p = root.cursor
     var dt = p.at ? Math.max(0.016, (now - p.at) / 1000) : 0.05
     var vx = (x - p.x) / dt, vy = (y - p.y) / dt
     var moved = Math.abs(x - p.x) + Math.abs(y - p.y) > 2
@@ -608,11 +744,14 @@ Item {
         if (cursorPoll.running) { cursorPoll.interval = root.fastPoll; cursorPoll.restart() }
       } else if (wasIdle && windowPoll.running) { windowPoll.interval = root.pointerPoll; windowPoll.restart() }
     }
-    root.pointer = {
+    root.cursor = {
       x: x, y: y,
       vx: p.at ? p.vx * 0.4 + vx * 0.6 : 0, vy: p.at ? p.vy * 0.4 + vy * 0.6 : 0,
       present: true, stillFor: moved ? 0 : p.stillFor + dt, at: now
     }
+    // Only the effects that use the pointer are handed it.
+    if (root.wantsPointer) root.pointer = root.cursor
+    else if (root.pointer.present) root.pointer = root.noPointer
   }
 
   // ---------------------------------------------------------- visitors
@@ -1279,8 +1418,123 @@ Item {
 
   // What a scene's simulation reported this frame.
   function sceneEvent(scene, ev) {
+    root.playCue(ev)
     if (ev.type === "throw") throwSnowball(ev)
     else if (ev.type === "golden") unlockOrnament()
+  }
+
+
+  // ---------------------------------------------------------- sound
+  //
+  // Each effect's own sounds (Sound.qml, lib/sound.js): its bed while a
+  // scene shows it, and a sound the moment the scene does something (the
+  // thunder plays in the frame its bolt flashes). Off in the panel, in calm
+  // mode, and while a fullscreen app covers every screen.
+  property bool anyLive: false
+  Timer {
+    interval: 400
+    repeat: true
+    running: root.showing
+    triggeredOnStart: true
+    onTriggered: {
+      var live = false, wet = 0
+      for (var k in root.scenes) {
+        var sc = root.scenes[k]
+        if (!sc || !sc.live) continue
+        live = true
+        if (sc.world) wet = Math.max(wet, sc.world.wet || 0)
+      }
+      root.anyLive = live
+      root.stormWet = wet
+    }
+    onRunningChanged: if (!running) root.anyLive = false
+  }
+  // Calm mode plays everything at half its level.
+  readonly property bool soundOn: root.loaded && !!root.saved.sound && root.showing && root.anyLive
+  property var soundState: Snd.newState()
+  property real stormWet: 0.5
+  Loader {
+    id: soundLoader
+    active: root.loaded && !!root.saved.sound
+    source: "Sound.qml"
+    onStatusChanged: if (status === Loader.Error) console.warn("flurry: Qt Multimedia (qt6-multimedia) is not available; sounds go through pw-play/paplay instead")
+  }
+  // Qt Multimedia when it loads and its player works; otherwise PipeWire's
+  // or PulseAudio's command-line player, for the bed as well as the cues.
+  readonly property bool qtSound: soundLoader.status === Loader.Ready && !!soundLoader.item && !soundLoader.item.broken
+  readonly property string soundBackend: !root.saved.sound ? "off" : (root.qtSound ? "qt" : "cli")
+  onSoundBackendChanged: console.info("flurry: sound backend " + root.soundBackend
+                                      + (soundLoader.item && soundLoader.item.problem ? " (" + soundLoader.item.problem + ")" : ""))
+  readonly property real soundVolume: root.saved.soundVolume === undefined ? 0.8 : root.saved.soundVolume
+  readonly property string bedNow: root.soundOn ? Snd.bedFor(root.effect, true) : ""
+  readonly property real bedLevelNow: Snd.bedLevel(root.effect, root.intensity, root.stormWet) * (root.calmActive ? 0.5 : 1)
+  Binding { target: soundLoader.item; property: "bed"; value: root.qtSound ? root.bedNow : ""; when: soundLoader.status === Loader.Ready }
+  Binding { target: soundLoader.item; property: "bedLevel"; value: root.bedLevelNow; when: soundLoader.status === Loader.Ready }
+  Binding { target: soundLoader.item; property: "volume"; value: root.soundVolume; when: soundLoader.status === Loader.Ready }
+  readonly property string soundDir: decodeURIComponent(String(Qt.resolvedUrl("sounds/")).replace(/^file:\/\//, ""))
+
+  // The bed through the command-line player: the file over and over, at the
+  // bed's level (rounded, so a slowly changing level doesn't restart it).
+  readonly property string cliBed: root.soundBackend === "cli" && root.bedNow !== "" ? root.bedNow : ""
+  readonly property real cliBedVolume: Math.round(root.bedLevelNow * root.soundVolume * 20) / 20
+  // Same as the Qt player: takes in a random order (never the same one
+  // twice running), each started BED_OVERLAP seconds before the last ends.
+  Process {
+    id: cliBedPlayer
+    command: ["sh", "-c",
+      "dir=$1; vol=$2; pvol=$3; len=$4; shift 4; TAKES=$*; last=; kids=; "
+      + "trap 'kill $kids $s 2>/dev/null; exit 0' TERM INT; "
+      + "if command -v pw-play >/dev/null 2>&1; then play() { pw-play --volume=\"$vol\" \"$1\"; }; "
+      + "elif command -v paplay >/dev/null 2>&1; then play() { paplay --volume=\"$pvol\" \"$1\"; }; else exit 1; fi; "
+      + "while :; do "
+      + "  set -- $(for f in $TAKES; do [ \"$f\" != \"$last\" ] && echo $f; done | shuf); last=$1; "
+      + "  play \"$dir/$1.wav\" & kids=\"$kids $!\"; sleep \"$len\" & s=$!; wait $s; "
+      + "  kids=$(for k in $kids; do kill -0 $k 2>/dev/null && echo $k; done); "
+      + "done",
+      "flurry-bed", root.soundDir.replace(/\/$/, ""), root.cliBedVolume.toFixed(2), String(Math.round(root.cliBedVolume * 65536)),
+      String(Snd.BED_SECONDS - Snd.BED_OVERLAP)].concat(Snd.bedTakes(root.cliBed))
+    running: false
+  }
+  function restartCliBed() {
+    cliBedPlayer.running = false
+    if (root.cliBed !== "" && root.cliBedVolume > 0) cliBedPlayer.running = true
+  }
+  onCliBedChanged: restartCliBed()
+  onCliBedVolumeChanged: if (root.cliBed !== "") cliBedTweak.restart()
+  Timer { id: cliBedTweak; interval: 600; onTriggered: root.restartCliBed() }
+
+  function playCue(ev) {
+    if (!root.soundOn) return
+    var cue = Snd.cueFor(root.soundState, ev, Date.now() / 1000)
+    if (cue) root.playSound(cue.name, cue.volume * (root.calmActive ? 0.5 : 1))
+  }
+  function playSound(name, volume) {
+    if (root.qtSound) { soundLoader.item.play({ name: name, volume: volume }); return }
+    var vol = Math.max(0, Math.min(1, volume * root.soundVolume))
+    Quickshell.execDetached(["sh", "-c",
+      "if command -v pw-play >/dev/null 2>&1; then exec pw-play --volume=\"$2\" \"$1\"; "
+      + "elif command -v paplay >/dev/null 2>&1; then exec paplay --volume=\"$3\" \"$1\"; fi",
+      "flurry-sound", root.soundDir + name + ".wav", vol.toFixed(3), String(Math.round(vol * 65536))])
+  }
+  // `flurry sound [on|off|test|status]`. test plays a close thunder now,
+  // whatever the scene is doing; status says why it is quiet, if it is.
+  function soundCommand(mode) {
+    if (mode === "on" || mode === "off") { setSound(mode === "on"); return mode }
+    if (mode === "test") {
+      if (!root.saved.sound) return "sound is off in the panel (flurry sound on)"
+      root.playSound("thunder-near-1", 1)
+      return "thunder (" + root.soundBackend + ")"
+    }
+    var why = []
+    if (!root.saved.sound) why.push("off in the panel")
+    if (!root.showing) why.push("Flurry is not showing")
+    if (root.showing && !root.anyLive) why.push("a fullscreen app covers every screen")
+    if (root.calmActive) why.push("calm mode: everything at half level (flurry calm off)")
+    return JSON.stringify({ backend: root.soundBackend, qtMultimedia: soundLoader.status === Loader.Ready,
+                            problem: soundLoader.item ? soundLoader.item.problem : (soundLoader.status === Loader.Error ? "Qt Multimedia missing" : ""),
+                            playing: root.soundOn, bed: root.bedNow,
+                            player: root.qtSound ? soundLoader.item.describe() : (cliBedPlayer.running ? "pw-play loop" : "stopped"), volume: root.soundVolume, quietBecause: why,
+                            files: root.soundDir })
   }
 
   // ---------------------------------------------------------- misc
@@ -1348,6 +1602,7 @@ Item {
     function calm(mode: string): string { return root.setCalm(mode) ? root.saved.calm : "calm: off, on or work" }
     function surprise(kind: string): string { return root.surpriseNow(kind) }
     function diag(): string { return root.diag() }
+    function sound(mode: string): string { return root.soundCommand(mode) }
     function freeze(): string { return root.freezeNow() }
     function ornaments(style: string): string {
       if (style === "" || style === "next") return root.nextOrnamentStyle()

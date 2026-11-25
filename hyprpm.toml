@@ -1,0 +1,11 @@
+[repository]
+name = "flurry"
+authors = ["Saman Shirdel"]
+
+[flurry-anchor]
+description = "Keeps Flurry's frost, snow ledges and icicles on their windows, frame for frame"
+authors = ["Saman Shirdel"]
+output = "hyprland-plugin/flurry-anchor.so"
+build = [
+    "make -C hyprland-plugin all",
+]
