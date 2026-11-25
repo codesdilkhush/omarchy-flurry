@@ -439,6 +439,7 @@ Item {
     root.lastMotion = Date.now()
     // Waking from idle: poll fast at once instead of after the idle tick.
     if (idle && windowPoll.running) { windowPoll.interval = root.fastPoll; windowPoll.restart() }
+    if (idle && cursorPoll.running) { cursorPoll.interval = root.fastPoll; cursorPoll.restart() }
   }
   readonly property bool active: root.loaded && root.saved.enabled
 
@@ -560,15 +561,19 @@ Item {
     }
   }
 
-  // 20 times a second while the pointer moves; when it has rested a couple
-  // of seconds, about 7 times, which still catches it setting off at once.
+  // 20 times a second while the pointer moves, every frame while a window
+  // is moving (a dragged window's snow is painted from the pointer, see
+  // draw.js leadOf; cursorpos is a cheap request); when it has rested a
+  // couple of seconds, about 7 times, which still catches it setting off.
   Timer {
+    id: cursorPoll
     running: root.wantsPointer && root.showing && root.hyprSocket !== ""
     repeat: true
     interval: root.pointer.stillFor > 2 ? 150 : 50
     onTriggered: {
       if (cursorSocket.connected) cursorSocket.connected = false
       cursorSocket.connected = true
+      interval = Date.now() - root.lastMotion < 2000 ? root.fastPoll : (root.pointer.stillFor > 2 ? 150 : 50)
     }
   }
 

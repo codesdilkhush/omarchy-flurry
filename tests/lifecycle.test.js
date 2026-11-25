@@ -211,25 +211,27 @@ test("surprises come within a minute or two: a bird on a bare ledge, a hare on b
   assert.ok(w.rabbit && isFinite(w.rabbit.x) && isFinite(w.rabbit.y))
 })
 
-test("drawing: falling snow is painted behind windows, never over a window's face", { skip: !createCanvas && "needs @napi-rs/canvas" }, () => {
+test("drawing: falling snow is painted in front of windows, rain behind them", { skip: !createCanvas && "needs @napi-rs/canvas" }, () => {
   const D = load("lib/draw.js")
-  const w = S.createWorld(800, 600, { effect: "snow", intensity: 2, plow: false })
   const r = { id: "0x1", x: 200, y: 150, w: 400, h: 300, floating: true, z: 0 }
-  // Frost and icicles are ice on the window, not snow: switched off here.
-  S.setFeatures(w, { icicles: false })
-  for (let t = 0; t < 20; t += dt) { S.setSurfaces(w, [r], w.time); S.step(w, dt) }
-  // Put flakes and chunks right in front of the window's face.
-  for (let i = 0; i < 200; i++) w.particles.push({ kind: i % 2 ? "flake" : "clump", x: 220 + Math.random() * 360, y: 200 + Math.random() * 200,
-    vx: 0, vy: 0, r: 2, depth: 0.9, amount: 0.5, pack: 0.5, angle: 0, spin: 0, life: 10, age: 0, rest: null })
-  const c = createCanvas(800, 600), ctx = c.getContext("2d")
-  D.world(ctx, w)
-  const px = ctx.getImageData(r.x + 4, r.y + 8, r.w - 8, r.h - 40).data
-  let painted = 0
-  for (let i = 3; i < px.length; i += 4) if (px[i] > 8) painted++
-  assert.strictEqual(painted, 0, `${painted} px of snow over the window's face`)
-  // And they still show around it.
-  const out = ctx.getImageData(0, 0, 190, 600).data
-  let outside = 0
-  for (let i = 3; i < out.length; i += 4) if (out[i] > 8) outside++
-  assert.ok(outside > 50, "snow still falls beside it")
+  const face = (kinds) => {
+    const w = S.createWorld(800, 600, { effect: "snow", intensity: 2, plow: false })
+    // Frost and icicles are ice on the window, not snow: switched off here.
+    S.setFeatures(w, { icicles: false })
+    for (let t = 0; t < 20; t += dt) { S.setSurfaces(w, [r], w.time); S.step(w, dt) }
+    // Put particles right in front of the window's face.
+    w.particles = []
+    for (let i = 0; i < 200; i++) w.particles.push({ kind: kinds[i % kinds.length], x: 220 + Math.random() * 360, y: 200 + Math.random() * 200,
+      vx: 0, vy: 400, r: 2, len: 12, depth: 0.9, amount: 0.5, pack: 0.5, angle: 0, spin: 0, life: 10, age: 0, rest: null })
+    const c = createCanvas(800, 600), ctx = c.getContext("2d")
+    D.world(ctx, w)
+    const px = ctx.getImageData(r.x + 4, r.y + 8, r.w - 8, r.h - 40).data
+    let painted = 0
+    for (let i = 3; i < px.length; i += 4) if (px[i] > 8) painted++
+    return painted
+  }
+  // Flakes and the clumps a window sheds are seen falling over windows too.
+  assert.ok(face(["flake", "clump", "powder"]) > 200, "snow shows over the window's face")
+  // Rain still falls behind them.
+  assert.strictEqual(face(["drop"]), 0, "rain over the window's face")
 })
