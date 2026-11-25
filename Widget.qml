@@ -42,7 +42,27 @@ BarWidget {
   property string view: "scene"
   property string actionNote: ""
   property var hare: ({ here: false, why: "" })
+  // The shell opens and closes the panel through these (a hotkey,
+  // `omarchy-shell shell toggle itscallssh.flurry`): Bar.findPanelWidget
+  // needs open, close and opened on the widget's root.
+  readonly property bool opened: popupOpen
+  function open() { popupOpen = true }
   function close() { popupOpen = false }
+  // Why a visitor can't come, in the panel's language. The service gives the
+  // reason in English (as `flurry diag` does); a reason with no string here
+  // is shown as it came.
+  readonly property var whyKeys: ({
+    "surprises are off": "why.surprisesOff", "calm mode": "why.calm", "a fullscreen app is up": "why.fullscreen",
+    "battery is low": "why.lowBattery", "decorating": "why.decorating", "a window is moving": "why.dragging",
+    "the plow is out": "why.plow", "no sprouts up yet": "why.noSprouts", "no snow on the ground yet": "why.noGroundSnow",
+    "Flurry is off": "why.off", "no screen": "why.noScreen", "no scene": "why.noScreen"
+  })
+  function whyText(why) {
+    why = String(why || "")
+    if (whyKeys[why]) return strings.t(whyKeys[why])
+    if (why.indexOf("the hare comes only in snow") === 0) return strings.t("why.onlySnow")
+    return why
+  }
   function refreshHare() { if (root.service) root.hare = root.service.visitorStatus("rabbit") }
   onPopupOpenChanged: { if (popupOpen) { root.actionNote = ""; refreshHare() } }
 
@@ -421,7 +441,7 @@ BarWidget {
             title: strings.t("surprises")
             description: strings.t("surprises.desc")
             note: !root.saved.surprises || !root.on ? ""
-              : (root.hare.here ? strings.t("hare.here") : (root.hare.why ? strings.t("hare.waiting").arg(root.hare.why) : strings.t("hare.can")))
+              : (root.hare.here ? strings.t("hare.here") : (root.hare.why ? strings.t("hare.waiting").arg(root.whyText(root.hare.why)) : strings.t("hare.can")))
             checked: !!root.saved.surprises
             onToggled: root.service.setFlag("surprises", !root.saved.surprises)
           }

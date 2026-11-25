@@ -90,3 +90,14 @@ test("untrusted text in the panel is plain text", () => {
   assert.match(src, /component PlainText: Text \{\s*textFormat: Text\.PlainText/)
   assert.ok(!/\bText \{/.test(src.replace("component PlainText: Text {", "")), "a bare Text {} that could render rich text")
 })
+
+// Hyprland answers "cursorpos" with no newline and then closes its end.
+// Taking each chunk as it comes and closing ours first keeps Quickshell from
+// logging a PeerClosedError on every poll (found on a real shell run: up to
+// twenty journal lines a second while the snow was on).
+test("the pointer socket reads each answer whole and closes first", () => {
+  const src = read("Service.qml")
+  const block = src.slice(src.indexOf("id: cursorSocket"), src.indexOf("function takePointer"))
+  assert.match(block, /splitMarker:\s*""/)
+  assert.match(block, /cursorSocket\.connected = false/)
+})

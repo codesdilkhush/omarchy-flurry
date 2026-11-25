@@ -75,5 +75,17 @@
   "friends.sendNote": "فرستادن یادداشت",
   "friends.remove": "حذف",
   "friends.notePlaceholder": "یادداشتی برای یک دوست…",
-  "friends.throwTo": "گلوله‌ها می‌روند برای %1"
+  "friends.throwTo": "گلوله‌ها می‌روند برای %1",
+  "why.surprisesOff": "مهمان‌ها خاموش‌اند",
+  "why.calm": "حالت آرام روشن است",
+  "why.fullscreen": "یک برنامه تمام‌صفحه باز است",
+  "why.lowBattery": "باتری کم است",
+  "why.decorating": "در حال تزئین",
+  "why.dragging": "یک پنجره در حال جابه‌جایی است",
+  "why.plow": "برفروب بیرون است",
+  "why.noSprouts": "هنوز جوانه‌ای در نیامده",
+  "why.onlySnow": "خرگوش فقط وقت برف می‌آید",
+  "why.noGroundSnow": "هنوز برفی روی زمین ننشسته",
+  "why.off": "Flurry خاموش است",
+  "why.noScreen": "صفحه‌ای نیست"
 }

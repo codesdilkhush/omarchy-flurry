@@ -56,10 +56,18 @@ Item {
 
   // A freshly planted tree grows; a fresh snowman is rolled ball by ball.
   property real growth: 1
+  // The item can arrive a moment after the delegate is made (the scene's
+  // lookup by key fills in later), so the first look waits for it.
+  property bool looked: false
+  function firstLook() {
+    if (looked || !item) return
+    looked = true
+    var age = item.planted ? Date.now() - item.planted : 1e9
+    if ((kind === "tree" && age < 4000) || (kind === "snowman" && !wasSeen())) { growth = 0; grow.start() }
+  }
   Component.onCompleted: {
     if (scene) scene.addTouchable(root)
-    var age = item && item.planted ? Date.now() - item.planted : 1e9
-    if ((kind === "tree" && age < 4000) || (kind === "snowman" && !wasSeen())) { growth = 0; grow.start() }
+    firstLook()
   }
   Component.onDestruction: if (scene) scene.removeTouchable(root)
 
@@ -73,7 +81,7 @@ Item {
 
   NumberAnimation { id: grow; target: root; property: "growth"; from: 0; to: 1; duration: root.kind === "tree" ? 2400 : 1300; easing.type: Easing.OutCubic }
   onGrowthChanged: canvas.requestPaint()
-  onItemChanged: { canvas.requestPaint(); lights.requestPaint() }
+  onItemChanged: { firstLook(); canvas.requestPaint(); lights.requestPaint() }
   // Theme colours reach the scarf.
   Connections {
     target: root.scene ? root.scene.service : null
