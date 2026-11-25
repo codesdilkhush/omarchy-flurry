@@ -2,10 +2,10 @@
 # flurry: drive the Flurry plugin from a terminal or a Hyprland bind.
 #   flurry [toggle|on|off|next|effect <name>|intensity <0.25-2>|decorate|santa|yeti|plow [on|off|toggle]|lights|snowballs|
 #           shake|fireworks [seconds]|season <auto|winter|spring>|surprise [bird|rabbit|golden]|diag|freeze|
-#           weather [on|off|now|status]|city <name>|location <lat> <lon>|calm <off|on|work>|
+#           weather [on|off|now|status]|city <name>|location <lat> <lon>|calm <off|on|work>|sound [on|off|test|status]|
 #           ornaments [style|next]|throwto <friend>|
 #           gusts|writing|daycycle|seasons|newyear|surprises|theme|throwing|
-#           code|name <name>|add <friend-code>|note <friend> <text>|status|clear]
+#           code|name <name>|add <friend-code>|note <friend> <text>|status|clear|update [--yes]]
 set -euo pipefail
 call() { omarchy-shell flurry "$@"; }
 cmd=${1:-toggle}; shift || true
@@ -21,6 +21,7 @@ case $cmd in
   city) call city "${*:?city name}" ;;
   location) call location "${1:?latitude}" "${2:?longitude}" ;;
   calm) call calm "${1:?off|on|work}" ;;
+  sound) call sound "${1:-status}" ;;
   ornaments) call ornaments "${1:-next}" ;;
   throwto) call throwTo "${1:?friend}" ;;
   gusts) call toggleFlag windGusts ;;
@@ -35,6 +36,10 @@ case $cmd in
   name) call setName "${1:?name}" ;;
   add) call addFriend "${1:-$(wl-paste --no-newline)}" ;;
   note) call note "${1:?friend}" "${2:?text}" ;;
+  update)
+    # The plugin folder this script lives in (bin/..), updated from git.
+    dir=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+    exec omarchy plugin update "$(basename "$dir")" "$@" ;;
   -h|--help|help) sed -n 2,8p "$0" ;;
   *) echo "flurry: unknown command '$cmd'" >&2; exit 1 ;;
 esac

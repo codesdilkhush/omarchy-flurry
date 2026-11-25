@@ -99,6 +99,7 @@ PanelWindow {
     try { Sim.letGo(world) } catch (e) { }
     world = freshWorld()
     applyFeatures()
+    anchorReset()
     surfaceSig = ""
     stepFailures = 0
     canvas.requestPaint()
@@ -176,7 +177,11 @@ PanelWindow {
         z: ipc.focusHistoryID === undefined ? 50 : Number(ipc.focusHistoryID)
       })
     }
-    return rects
+    // The focused window (the one a drag moves) is read from the pointer
+    // feed's snapshot when that is fresher than the list: the list answers
+    // a poll or two behind the compositor, and its snow would trail the
+    // window. Every rect also says how old its reading is (age, s).
+    return Policy.withSnapshot(rects, service.focusSnap, Date.now(), sx, sy, service.windowsReadAt, 150)
   }
 
   // Every window that still exists, on any workspace or monitor: their snow
@@ -229,16 +234,25 @@ PanelWindow {
     }
   }
 
+  property int focusSeqSeen: 0
   function syncWindows() {
     var rects = readWindows()
     var sig = rects.map(function(r) { return [r.id, r.x, r.y, r.w, r.h, r.floating ? 1 : 0, r.z].join(",") }).join(";")
-    if (sig === surfaceSig) return
+    // A fresh snapshot that shows the focused window where it was: it has
+    // stopped, so its snow is painted where it is (see draw.js leadOf).
+    var snap = service.focusSeq !== focusSeqSeen ? service.focusSnap : null
+    focusSeqSeen = service.focusSeq
+    if (sig === surfaceSig) {
+      if (snap) Sim.noteStill(world, [snap.id])
+      return
+    }
     if (surfaceSig !== "") service.noteMotion()
     var gone = surfaceSig !== "" && rects.length < windowRects.length
     surfaceSig = sig
     windowRects = rects
     lastSurfaceChange = clock
     Sim.setSurfaces(world, rects, clock, aliveIds(), motionHint())
+    if (snap) Sim.noteStill(world, [snap.id])
     var seen = seenWindows, last = {}
     for (var i = 0; i < rects.length; i++) { seen[rects[i].id] = true; last[rects[i].id] = rects[i] }
     for (var k in lastRects) if (!last[k] && service.windowExists(k)) last[k] = lastRects[k]
@@ -272,19 +286,23 @@ PanelWindow {
                                   stillFor: p.stillFor, age: p.at ? Math.max(0, Date.now() - p.at) / 1000 : 0 } : null
         Sim.setStrings(sceneWin.world, sceneWin.stringSpecList)
         try {
-          Sim.step(sceneWin.world, dt, { pointer: local, readAgo: sceneWin.service.windowsReadAt > 0 ? Math.max(0, Date.now() - sceneWin.service.windowsReadAt) / 1000 : undefined })
+          Sim.step(sceneWin.world, dt, { pointer: local })
           sceneWin.stepFailures = 0
         } catch (e) {
           sceneWin.noteFault("step", e)
           if (++sceneWin.stepFailures >= 120) { sceneWin.recoverWorld(); return }
         }
         sceneWin.reportFaults()
+        // Sounds first, so the thunder goes with its flash.
+        var sounds = Sim.takeSounds(sceneWin.world)
+        for (var q = 0; q < sounds.length; q++) sceneWin.service.playCue(sounds[q])
         var events = Sim.takeEvents(sceneWin.world)
         for (var e = 0; e < events.length; e++) {
           if (events[e].type === "yank") sceneWin.dropRiders(events[e])
           else sceneWin.service.sceneEvent(sceneWin, events[e])
         }
         canvas.requestPaint()
+        sceneWin.anchorTick()
       }
       sceneWin.stepVisitors(dt)
     }
@@ -390,6 +408,137 @@ PanelWindow {
       ctx.reset()
       try { Draw.world(ctx, sceneWin.world) } catch (e) { sceneWin.noteFault("paint", e) }
     }
+  }
+
+
+  // ------------------------------------------------- compositor plugin
+  //
+  // With the flurry-anchor plugin loaded (Service.anchorAvailable), what
+  // lies on each window here is painted into two strips in the window's own
+  // frame (draw.js paintStrip), saved as PNGs and handed to the plugin,
+  // which draws them with the window at its position in every frame. The
+  // overlay then leaves those windows' frost, ledge and icicles out
+  // (world.anchored). A strip is painted again when what it shows changed
+  // (draw.js attachedSig): at most 30 times a second for a window that is
+  // moving or shedding, 4 times a second otherwise.
+  property var anchorHeld: ({})       // id -> true once the plugin has both strips
+  property var anchorSigs: ({})       // id -> fingerprint last sent
+  property var anchorAt: ({})         // id -> clock when last sent
+  property int anchorSeq: 0
+  property var anchorJob: null        // { id, strips, files, i, sig }
+  readonly property bool anchorOn: !!service && service.anchorAvailable && live
+
+  function anchorReset() {
+    var gone = Object.keys(anchorHeld)
+    anchorHeld = ({}); anchorSigs = ({}); anchorAt = ({}); anchorJob = null
+    if (world) world.anchored = null
+    if (gone.length && service && service.anchorAvailable)
+      service.anchorSend(Policy.anchorBatch(gone.map(function(id) { return Policy.anchorClear(id) })), gone.length, null)
+    canvas.requestPaint()
+  }
+  onAnchorOnChanged: if (!anchorOn) anchorReset()
+
+  property bool anchorWarned: false
+  function anchorTick() {
+    // A strip that never got painted or answered (it should take a frame
+    // or two): given up on, so the next can go.
+    if (anchorJob && clock - anchorJob.started > 1) {
+      if (!anchorWarned) { anchorWarned = true; console.warn("flurry: a strip for the compositor plugin was not painted in time; retrying") }
+      anchorJob = null
+    }
+    if (!anchorOn || anchorJob || !world || !service.anchorDirReady) return
+    // Windows that left this screen (closed, another workspace): theirs go.
+    var ids = windowRects.map(function(r) { return r.id })
+    var gone = Policy.anchorGone(anchorHeld, ids)
+    if (gone.length) {
+      var held = Object.assign({}, anchorHeld)
+      for (var g = 0; g < gone.length; g++) { delete held[gone[g]]; delete anchorSigs[gone[g]] }
+      anchorHeld = held
+      world.anchored = held
+      service.anchorSend(Policy.anchorBatch(gone.map(function(id) { return Policy.anchorClear(id) })), gone.length, null)
+    }
+    // The window most overdue for fresh strips.
+    var best = null, bestLate = 0
+    for (var i = 0; i < windowRects.length; i++) {
+      var id = windowRects[i].id, s = world.surfaces[id]
+      if (!s || s.ground || s.plow) continue
+      var sig = Draw.attachedSig(world, s)
+      var since = clock - (anchorAt[id] === undefined ? -1e9 : anchorAt[id])
+      var animated = (s.glaze || 0) > 0.04 || (s.water || 0) > 0.5 || s.pour
+      var gap = windowsMoving ? 1 / 30 : 0.25
+      var due = !anchorHeld[id] || (sig !== anchorSigs[id] && since >= gap) || (animated && since >= 0.5)
+      if (due && since > bestLate) { best = { id: id, sig: sig }; bestLate = since }
+    }
+    if (!best) return
+    var surf = world.surfaces[best.id]
+    var strips = Draw.anchorStrips(surf, world.border)
+    anchorSeq++
+    var files = strips.map(function(st) { return Policy.anchorFile(service.anchorDir, best.id, st.slot, anchorSeq) })
+    if (files.indexOf("") >= 0) return
+    anchorJob = { id: best.id, strips: strips, files: files, i: 0, sig: best.sig, started: clock }
+    anchorPaintNext()
+  }
+  function anchorPaintNext() {
+    var job = anchorJob
+    var st = job.strips[job.i]
+    anchorCanvas.width = Math.max(1, Math.ceil(st.w))
+    anchorCanvas.height = Math.max(1, Math.ceil(st.h))
+    anchorCanvas.requestPaint()
+  }
+  function anchorPainted() {
+    var job = anchorJob
+    if (!job) return
+    if (!anchorCanvas.save(job.files[job.i])) { console.warn("flurry: could not write " + job.files[job.i]); anchorJob = null; return }
+    if (++job.i < job.strips.length) { anchorPaintNext(); return }
+    var cmds = job.strips.map(function(st, k) { return Policy.anchorSet(job.id, st, job.files[k]) })
+    var id = job.id, sig = job.sig, at = clock
+    service.anchorSend(Policy.anchorBatch(cmds), cmds.length, function(text) {
+      var ok = Policy.anchorReplies(String(text || ""), cmds.length)
+      sceneWin.anchorJob = null
+      if (!sceneWin.anchorOn) return
+      if (ok.every(function(v) { return v })) {
+        sceneWin.anchorSigs[id] = sig
+        sceneWin.anchorAt[id] = at
+        if (!sceneWin.anchorHeld[id]) {
+          var held = Object.assign({}, sceneWin.anchorHeld)
+          held[id] = true
+          sceneWin.anchorHeld = held
+          sceneWin.world.anchored = held
+          canvas.requestPaint()
+        }
+      } else {
+        // Not taken (the window is gone, or the plugin was unloaded): the
+        // overlay paints it again, and the plugin is asked for afresh.
+        sceneWin.anchorAt[id] = at
+        if (sceneWin.anchorHeld[id]) {
+          var held2 = Object.assign({}, sceneWin.anchorHeld)
+          delete held2[id]
+          sceneWin.anchorHeld = held2
+          sceneWin.world.anchored = held2
+          canvas.requestPaint()
+        }
+      }
+    })
+  }
+  // Painted off screen: the overlay shows nothing of it.
+  Canvas {
+    id: anchorCanvas
+    x: 0; y: 0
+    width: 1; height: 1
+    opacity: 0
+    enabled: false
+    renderTarget: Canvas.Image
+    renderStrategy: Canvas.Immediate
+    onPaint: {
+      var job = sceneWin.anchorJob
+      var ctx = getContext("2d")
+      ctx.reset()
+      if (!job || !sceneWin.world) return
+      var s = sceneWin.world.surfaces[job.id]
+      if (!s) return
+      try { Draw.paintStrip(ctx, sceneWin.world, s, job.strips[job.i], 1) } catch (e) { sceneWin.noteFault("anchor", e) }
+    }
+    onPainted: sceneWin.anchorPainted()
   }
 
   // ------------------------------------------------------------ placement
@@ -686,7 +835,7 @@ PanelWindow {
   // Not over a fullscreen app: the visit would wait there unseen.
   function callSanta() {
     if (fullscreenApp) return false
-    if (!santa.running) santa.start()
+    if (!santa.running) { santa.start(); if (service) service.playCue({ type: "sleigh" }) }
     return true
   }
 

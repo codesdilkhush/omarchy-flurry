@@ -87,5 +87,8 @@
   "why.onlySnow": "خرگوش فقط وقت برف می‌آید",
   "why.noGroundSnow": "هنوز برفی روی زمین ننشسته",
   "why.off": "Flurry خاموش است",
-  "why.noScreen": "صفحه‌ای نیست"
+  "why.noScreen": "صفحه‌ای نیست",
+  "sound": "صدا",
+  "sound.desc": "صدای بارون، رعد همراه برق، خش‌خش برگ، جیرجیرک...",
+  "sound.volume": "بلندی صدا"
 }

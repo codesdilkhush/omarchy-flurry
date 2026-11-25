@@ -129,7 +129,9 @@ test("sliding conserves snow", () => {
   const { w, r } = snowyWindow()
   // Flakes still falling from before the snow stopped count too: they land
   // during the test (leaving them out made it fail now and then).
-  const flake = p => Math.PI * p.r * p.r * S.FLAKE_VOLUME / S.CELL
+  // A fresh flake lies on a window at up to TUNING.snow.windowCatch times its
+  // volume, so each is counted at that (the most it can add).
+  const flake = p => Math.PI * p.r * p.r * S.FLAKE_VOLUME / S.CELL * S.TUNING.snow.windowCatch
   const airborne = () => w.particles.reduce((a, p) => a + (p.kind === "clump" || p.kind === "powder" ? p.amount : (p.kind === "flake" ? flake(p) : 0)), 0)
   const total = () => S.totalSnow(w) + airborne()
   const before = total()

@@ -23,6 +23,33 @@ A snowflake lands on the right of your bar. Click it, pick a weather, and get ba
 Requires Omarchy 4 (Quattro) or later. Gifts between friends also use `curl` and
 `wl-clipboard`, which Omarchy ships.
 
+### Updating
+
+Get the latest fixes and features whenever you like:
+
+```bash
+omarchy plugin update omarchy-flurry
+```
+
+It shows you what changed, asks before applying it, and reloads Flurry. Your
+trees, snowmen, friends and settings stay as they are. Add `--yes` to skip the
+question, or leave out the name to update all your plugins at once.
+
+<details>
+<summary>If the update says "not a git checkout" or "local changes"</summary>
+
+That copy wasn't installed with `omarchy plugin add` (or its files were edited
+by hand), so there's nothing to pull from. Reinstall it once; your saved state
+lives outside the plugin folder and stays:
+
+```bash
+omarchy plugin remove omarchy-flurry --yes
+omarchy plugin add https://github.com/itscallssh/omarchy-flurry.git --enable
+```
+
+From then on `omarchy plugin update omarchy-flurry` works.
+</details>
+
 <p align="center"><img src="docs/screenshots/snowfall.gif" alt="Snow falling past a terminal and settling on its top edge" width="720"></p>
 
 ## 🌦️ Six kinds of weather
@@ -95,6 +122,25 @@ has your friend code and gifts. It follows Omarchy's language setting.
 | Click a gift or a letter | Open it |
 | Click Santa | He drops a present |
 | Click the Yeti | He runs off without your snowman |
+
+## 🔊 Sound
+
+Every effect has its own sound: steady rain, autumn wind through dry
+leaves, a hush of winter wind under the snow, a quiet night pad for
+starfall, a spring breeze with a distant chime for sakura, and crickets with
+the fireflies. And things sound when they happen, in the same frame: thunder
+with every lightning flash (close ones crack, far ones roll), a soft thud
+when a window throws its snow off, icicles snapping, a glint for a shooting
+star, New Year fireworks, sleigh bells for Santa. Each has a few variants,
+never the same one twice running.
+
+Turn it off, or set its volume, under **Sound** in the panel. In calm mode it all
+plays at half level; behind a fullscreen app it is quiet.
+`flurry sound test` plays a thunder now, and `flurry sound status` says why it
+is quiet, if it is. The sounds are made by
+`tools/make-sounds.py` (no samples, nothing to license). It plays through
+Qt Multimedia (`qt6-multimedia`) when it's there; without it everything plays
+through `pw-play` or `paplay`.
 
 ## 🎁 Send gifts to friends
 

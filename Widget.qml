@@ -33,7 +33,8 @@ BarWidget {
     plow: 0xF0B22, snowball: 0xF0717, sleigh: 0xF04B7, rabbit: 0xF0907, decorate: 0xF0405, shake: 0xF0566,
     freeze: 0xF0F2A, windGusts: 0xF059D, throwToFriends: 0xF0717, writing: 0xF0F49, dayCycle: 0xF12CB, seasons: 0xF0E66, newYear: 0xF0E30,
     themeSync: 0xF03D8, battery: 0xF1211, liveWeather: 0xF050F, calm: 0xF04B2, friends: 0xF000E, copy: 0xF018F,
-    paste: 0xF014A, send: 0xF048A, remove: 0xF0156, baubles: 0xF03CF, gift: 0xF0E44
+    paste: 0xF014A, send: 0xF048A, remove: 0xF0156, baubles: 0xF03CF, gift: 0xF0E44,
+    sound: 0xF057E, soundOff: 0xF0581
   })
   function glyph(name) { return String.fromCodePoint(glyphs[name] || 0xF0598) }
   function effectName(name) { return strings.t("effect." + name) }
@@ -411,6 +412,33 @@ BarWidget {
             step: 0.25
             value: root.service ? root.service.intensity : 1
             onReleased: function(v) { root.service.setIntensity(v) }
+          }
+
+          // Each effect's own sounds; off here for anyone who would rather
+          // have silence.
+          FeatureCard {
+            icon: root.glyph(root.saved.sound ? "sound" : "soundOff")
+            title: strings.t("sound")
+            description: strings.t("sound.desc")
+            checked: !!root.saved.sound
+            onToggled: root.service.setSound(!root.saved.sound)
+          }
+          RowLayout {
+            Layout.fillWidth: true
+            visible: !!root.saved.sound
+            PlainText { Layout.fillWidth: true; text: strings.t("sound.volume"); font.pixelSize: Style.font.subtitle; font.bold: true }
+            PlainText { text: Commons.I18n.formatNumber(Math.round(volumeSlider.liveValue * 100), 0) + "%"; opacity: 0.7 }
+          }
+          PanelSlider {
+            id: volumeSlider
+            Layout.fillWidth: true
+            visible: !!root.saved.sound
+            bar: root.bar
+            minimum: 0
+            maximum: 1
+            step: 0.05
+            value: root.saved.soundVolume === undefined ? 0.8 : root.saved.soundVolume
+            onReleased: function(v) { root.service.setSoundVolume(v) }
           }
 
           PanelSectionHeader { text: strings.t("section.desktop").toUpperCase(); foreground: Commons.Color.popups.text }
