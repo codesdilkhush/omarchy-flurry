@@ -239,14 +239,14 @@ test("surprises: the first within two minutes, then every few; never the same vi
   const rng = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
   const ctx = { mode: "snow", perches: 5, groundSnow: 3, groundCover: 0.6 }
   const first = Policy.planSurprise([], 0, ctx, rng, { first: true })
-  assert.ok(first.delay >= 60000 && first.delay <= 110000, String(first.delay))
+  assert.ok(first.delay >= 45000 && first.delay <= 90000, String(first.delay))
   // Nothing could come: look again soon, not in minutes.
   assert.strictEqual(Policy.planSurprise([{ kind: "bird", at: 0 }], 1000, ctx, rng, { missed: true }).delay, 15000)
   let history = [{ kind: "bird", at: 0 }], now = 0, repeats = 0
   const counts = { bird: 0, rabbit: 0, golden: 0 }
   for (let i = 0; i < 2000; i++) {
     const plan = Policy.planSurprise(history, now, ctx, rng)
-    assert.ok(plan.delay >= 2.5 * 60000 && plan.delay <= 5 * 60000, String(plan.delay))
+    assert.ok(plan.delay >= 2 * 60000 && plan.delay <= 4.5 * 60000, String(plan.delay))
     now += plan.delay
     const kind = Policy.pickSurprise(history, now, ctx, rng)
     const last = history[history.length - 1].kind

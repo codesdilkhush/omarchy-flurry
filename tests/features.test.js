@@ -595,3 +595,45 @@ test("the hare comes on a clear day with snow lying, not in the rain", () => {
   assert.notStrictEqual(P.surpriseBlock("rabbit", Object.assign({}, ctx, { mode: "rain" })), "")
   assert.notStrictEqual(P.surpriseBlock("rabbit", Object.assign({}, ctx, { groundCover: 0, groundSnow: 0 })), "")
 })
+
+test("a hare mostly walks, forefeet reaching ahead one then the other, and stops to nibble or look about", () => {
+  const { w, r } = snowy()
+  S.spawnRabbit(w, { dir: 1 })
+  w.rabbit.stay = 1e9
+  const seen = { walk: 0, hop: 0, graze: 0, up: 0 }
+  let staggered = 0, lifted = 0, maxLift = 0
+  for (let t = 0; t < 120 && w.rabbit; t += dt) {
+    S.setSurfaces(w, [r], w.time); S.step(w, dt)
+    const R = w.rabbit
+    if (R.mode === "walk") {
+      seen.walk += dt
+      if (R.fn - R.ff > 0.2) staggered++
+      if (R.hb > 1) lifted++
+      assert.strictEqual(R.lift, 0, "walking, it keeps its feet on the snow")
+    }
+    if (R.mode === "hop") { seen.hop += dt; maxLift = Math.max(maxLift, R.lift) }
+    if (R.mode === "rest" && R.act === "graze" && R.graze > 0.9) seen.graze += dt
+    if (R.mode === "rest" && R.act === "up" && R.up > 0.9) seen.up += dt
+  }
+  assert.ok(seen.walk > seen.hop, JSON.stringify(seen))
+  assert.ok(seen.graze > 1 && seen.up > 1, JSON.stringify(seen))
+  assert.ok(staggered > 30, "the forefeet step one after the other")
+  assert.ok(lifted > 30, "the haunch lifts as the hind feet come up")
+  assert.ok(maxLift < 9, `hops stay low: ${maxLift.toFixed(1)} px`)
+})
+
+test("the hare comes on its own now and then, more often than the robin", () => {
+  const Policy = load("lib/policy.js")
+  let seed = 11
+  const rng = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
+  const ctx = { mode: "snow", perches: 5, groundSnow: 3, groundCover: 0.6 }
+  let history = [], now = 0, hares = 0
+  for (let i = 0; i < 60; i++) {
+    const plan = Policy.planSurprise(history, now, ctx, rng, { first: !history.length })
+    now += plan.delay
+    if (plan.kind === "rabbit") hares++
+    history = Policy.remember(history, plan.kind, now)
+  }
+  // An hour of visits: the hare is at least every other one.
+  assert.ok(hares >= 25, `${hares} hares in ${(now / 60000).toFixed(0)} min`)
+})

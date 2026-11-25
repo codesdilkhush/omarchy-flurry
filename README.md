@@ -60,7 +60,7 @@ top: the berm grows, chunks tumble off it, and its weight slows the dozer down.
 | | |
 |:---:|:---:|
 | <img src="docs/screenshots/hare.jpg" alt="A white winter hare sitting in the snow"> | <img src="docs/screenshots/yeti.jpg" alt="The Yeti walking past a decorated tree"> |
-| **A winter hare** hops along the drifts and bolts when your cursor comes close | **The Yeti** comes for your snowman. Click him and he runs off without it |
+| **A winter hare** wanders the drifts, stops to nibble and look about, and bolts when your cursor comes close | **The Yeti** comes for your snowman. Click him and he runs off without it |
 
 A robin perches on your windows, Santa rides by now and then (click him for a present), and
 very rarely a golden snowflake falls. Catch it for a new bauble finish.
@@ -313,10 +313,10 @@ Flurry reads `~/.local/state/omarchy/current/theme/colors.toml` and tints the wi
 <details>
 <summary><b>Little surprises</b></summary>
 
-The first visitor comes a minute or two after Flurry starts, then one every two and a half to five minutes, never the same one twice running unless it's the only one that can come.
+The first visitor comes within a minute or two after Flurry starts, then one every two to four and a half minutes, never the same one twice running unless it's the only one that can come.
 
 - **A robin** lands on a window ledge (snowy or bare, even one right under the bar), on the plow's roof, or on the ground. It hops, pecks, cocks its head, leaves tiny footprints, and flies off when your cursor comes close, its window moves, or a snowball flies near.
-- **A winter hare** (white, with black-tipped ears) hops along the ground snow: it gathers, pushes off, stretches out and lands, leaving a hare's tracks, the two long hind prints side by side ahead of the two small forefoot prints. It stops to sit up tall with its ears raised and its nose twitching, and bolts when your cursor comes close, a snowball lands near it, or the plow comes.
+- **A winter hare** (white, with black-tipped ears) comes in from the edge of the screen with a few low hops, then mostly walks the way a hare does when it is in no hurry: the forefeet reach ahead one after the other, then the hind feet come up together under it, leaving a trail of prints in the snow. Now and then it runs a few hops, and between runs it stops to nibble at the snow, sit up tall with its ears raised and its nose twitching, or just sit, an ear flicking back now and then. After half a minute to a minute it heads off the nearer edge. It bolts when your cursor comes close, a snowball lands near it, or the plow comes.
 - **The golden snowflake**, very rarely. Catching it unlocks a new bauble finish for the tree (`flurry ornaments [style]`).
 
 They come only when it makes sense. The scene's mode is the effect, or with the Snow effect the live weather (`snow`, `flurries`, `blizzard`, `sleet`, `rain`, `clear`; plain `snow` with live weather off), or `spring` once the thaw is well along:
@@ -356,7 +356,7 @@ This is opt-in. Pick a friend with `flurry throwto <friend>` and turn it on with
 - Yank a window sideways and the snow stays where it was, like plates when a tablecloth is pulled out from under them. Flurry adds up how far the window's change in speed outruns what the snow's grip can pass on. Once that excess passes the speed at which kinetic friction (μk 0.2–0.3) would need more than 16 px to catch the snow up (about 115 px/s), the bond breaks. In practice that means going from rest to about 400–550 px/s within a tenth of a second (less for fresh powder, more for settled snow), or to 1500 px/s within a third of a second. The whole ledge comes loose in the next frame as clumps of a few sizes, each keeping its own place on screen. The window slides out from under them. A clump falls as soon as the window's edge has passed it, so the ledge drops right where it was, a column at a time. Kinetic friction only gives the snow a little of the window's speed (a couple of hundred px/s at most), so none of it is thrown. Pieces tumble, break in two and shed a little powder, and the snow's mass is kept. If the window stops while it is still under some of the snow, that snow settles back onto it. Icicles snap off where they hung, a perched bird takes off, and a snowman riding the window drops to the ground where it stood.
 - A window that moves with no pointer dragging it keeps its snow: the snow moves with it and nothing is read as a jolt. That covers a tiling relayout, a workspace switch, a keyboard move, and a window opening, closing, floating or going fullscreen. Hyprland reports no button state while you drag, so a drag is recognised by the pointer instead. It has to be moving, on the window or within a poll's travel of it, going the same way, and no layout event can have fired in the last 0.3 s. The first sample of a drag comes after the idle poll, so its speed is taken over the poll gap plus the 50 ms pointer poll. A long gap is therefore not mistaken for a huge speed, and a real yank is not mistaken for a jump. During an active drag, a big step counts as a yank even if the pointer reading lags.
 - The air a moving window stirs up eases in and out.
-- The first little surprise shows up 60 to 110 seconds after start, then one every 2.5 to 5 minutes. Icicles form within a minute or two in cold weather.
+- The first little surprise shows up 45 to 90 seconds after start, then one every 2 to 4.5 minutes. Icicles form within a minute or two in cold weather.
 
 </details>
 
