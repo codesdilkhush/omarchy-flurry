@@ -101,3 +101,45 @@ test("a snowman on a drift settles across its base, not on the crest", () => {
   const flat = { surfaces: { w: { x: 0, y: 500, bins: new Array(60).fill(5) } } }
   assert.ok(Math.abs(Sim.restingYUnder(flat, "w", x, 12 * Sim.CELL) - (500 - 0.85 * 5)) < 1e-9)
 })
+
+test("frozen, every window gets a close row along its whole edge, no long gaps, no wild lengths", () => {
+  const wins = [FLOAT, { id: "0xf2", x: 1250, y: 120, w: 300, h: 200, floating: true, z: 1 }, { id: "0xf3", x: 60, y: 560, w: 180, h: 120, floating: true, z: 2 }]
+  const w = S.createWorld(1600, 900, { effect: "snow", intensity: 1.2, groundInset: 0 })
+  for (let t = 0; t < 40; t += dt) { S.setSurfaces(w, wins, w.time); S.step(w, dt, {}) }
+  S.freezeNow(w)
+  for (const r of wins) {
+    const s = w.surfaces[r.id]
+    const big = s.icicles.filter(i => !i.small)
+    const xs = big.map(i => i.ox)
+    assert.ok(xs.length >= r.w / 30, `${r.id}: ${xs.length} on ${r.w} px`)
+    assert.ok(xs[0] < 12 && xs[xs.length - 1] > r.w - 28, `${r.id}: from ${xs[0].toFixed(0)} to ${xs[xs.length - 1].toFixed(0)}`)
+    for (let i = 1; i < xs.length; i++) assert.ok(xs[i] - xs[i - 1] <= 24, `${r.id}: a ${(xs[i] - xs[i - 1]).toFixed(0)} px gap`)
+    const lens = big.map(i => i.len)
+    assert.ok(Math.min(...lens) > 0.12 * Math.max(...lens), `${r.id}: none left stubby`)
+  }
+})
+
+test("resized, the row is laid out again over the new width, as far grown as before", () => {
+  const w = frozen(2)
+  const wide = Object.assign({}, FLOAT, { w: 1200 })
+  for (let t = 0; t < 2; t += dt) { S.setSurfaces(w, [wide], w.time); S.step(w, dt, {}) }
+  const s = w.surfaces[FLOAT.id]
+  const xs = s.icicles.map(i => i.ox)
+  assert.ok(Math.max(...xs) > 1200 - 40, `reaches ${Math.max(...xs).toFixed(0)} of 1200`)
+  const grown = s.icicles.filter(i => !i.small && i.len > 0.5 * i.max).length
+  assert.ok(grown > s.icicles.filter(i => !i.small).length * 0.8, "kept their length")
+})
+
+test("they keep to one edge: a window passing close by never sets them flipping top and bottom", () => {
+  const w = frozen(2)
+  const s = w.surfaces[FLOAT.id]
+  const other = { id: "0xo", x: 500, y: 520, w: 300, h: 200, floating: true, z: 1 }
+  let flips = 0, last = s.iceAt
+  for (let t = 0; t < 6; t += dt) {
+    // The other window bobs in and out of the room below, twice a second.
+    const near = Math.floor(t * 4) % 2 === 0
+    S.setSurfaces(w, [FLOAT, Object.assign({}, other, { y: near ? 515 : 700 })], w.time); S.step(w, dt, {})
+    if (s.iceAt !== last) { flips++; last = s.iceAt }
+  }
+  assert.ok(flips <= 1, `${flips} flips`)
+})

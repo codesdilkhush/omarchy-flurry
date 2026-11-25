@@ -272,7 +272,7 @@ PanelWindow {
                                   stillFor: p.stillFor, age: p.at ? Math.max(0, Date.now() - p.at) / 1000 : 0 } : null
         Sim.setStrings(sceneWin.world, sceneWin.stringSpecList)
         try {
-          Sim.step(sceneWin.world, dt, { pointer: local })
+          Sim.step(sceneWin.world, dt, { pointer: local, readAgo: sceneWin.service.windowsReadAt > 0 ? Math.max(0, Date.now() - sceneWin.service.windowsReadAt) / 1000 : undefined })
           sceneWin.stepFailures = 0
         } catch (e) {
           sceneWin.noteFault("step", e)

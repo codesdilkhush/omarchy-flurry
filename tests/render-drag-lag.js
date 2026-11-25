@@ -54,15 +54,29 @@ for (let t = 0; t < 2; t += dt) { S.setSurfaces(w, [term], w.time, [term.id], hi
 const PATHS = {
   // A sudden pull straight up, then a stop.
   up: t => t < 0.18 ? { x: 0, y: -1800 * t } : { x: 0, y: -324 },
+  // As in the user's recording: a pull down, a hold, a yank up, then a quick up-and-down shake.
+  jerk: t => {
+    const e = u => u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u)
+    if (t < 0.3) return { x: 0, y: 0 }
+    if (t < 0.8) return { x: 0, y: 220 * e((t - 0.3) / 0.5) }
+    if (t < 1.0) return { x: 0, y: 220 }
+    if (t < 1.2) return { x: 0, y: 220 - 300 * e((t - 1.0) / 0.2) }
+    if (t < 2.2) return { x: 0, y: -80 + 110 * Math.sin((t - 1.2) * 2 * Math.PI * 2.5) * Math.min(1, (t - 1.2) * 6) }
+    return { x: 0, y: -80 }
+  },
 }
 const path = PATHS[process.env.PATH_KIND] || (t => t < 0.5 ? { x: -700 * t, y: -260 * t } : t < 1.25 ? { x: -350 + 900 * (t - 0.5), y: -130 + 420 * (t - 0.5) } : { x: 325, y: 185 })
 const frames = [shot(w, term, title + " · at rest")]
 const hist = []
 const keep = process.env.PATH_KIND === "up" ? { 2: "+33 ms", 4: "+67 ms", 6: "+0.1 s", 9: "+0.15 s", 12: "+0.2 s", 16: "+0.27 s", 24: "+0.4 s" } : { 6: "drag +0.1 s", 15: "drag +0.25 s", 27: "drag +0.45 s", 40: "reversed +0.67 s", 55: "+0.92 s", 75: "+1.25 s" }
-const LAST = process.env.FRAMES ? 150 : 75
+const LAST = process.env.FRAMES ? (process.env.PATH_KIND === "jerk" ? 160 : 150) : 75
 for (let f = 0; f <= LAST; f++) {
   const p = path(f * dt)
+  // What the compositor shows when this frame of snow reaches the screen, a
+  // frame on (only for the jerk path; the others keep their old framing).
+  const pa = process.env.PATH_KIND === "jerk" ? path((f + 1) * dt) : p
   const shown = Object.assign({}, term, { x: term.x + p.x, y: term.y + p.y })
+  const onScreen = Object.assign({}, term, { x: term.x + pa.x, y: term.y + pa.y })
   hist.push(shown)
   const seen = hist[Math.max(0, hist.length - 1 - LAG)]
   const c0 = hist[Math.max(0, hist.length - 2)], c1 = hist[Math.max(0, hist.length - 3)]
@@ -70,7 +84,7 @@ for (let f = 0; f <= LAST; f++) {
   S.setSurfaces(w, [seen], w.time, [term.id], hint(ptr))
   S.step(w, dt, { pointer: ptr })
   if (keep[f]) frames.push(shot(w, shown, title + " · " + keep[f]))
-  if (process.env.FRAMES) fs.writeFileSync(process.env.FRAMES + "/f" + String(f).padStart(3, "0") + ".png", shot(w, shown, title).toBuffer("image/png"))
+  if (process.env.FRAMES) fs.writeFileSync(process.env.FRAMES + "/f" + String(f).padStart(3, "0") + ".png", shot(w, onScreen, title).toBuffer("image/png"))
 }
 const cols = 4, rows = Math.ceil(frames.length / cols)
 const sheet = createCanvas(PW * cols + 6 * (cols - 1), PH * rows + 6 * (rows - 1)), sc = sheet.getContext("2d")
