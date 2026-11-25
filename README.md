@@ -32,7 +32,7 @@ Requires Omarchy 4 (Quattro) or later. Gifts between friends also use `curl` and
 | <img src="docs/screenshots/effect-snow.jpg" alt="Snow"> | <img src="docs/screenshots/effect-leaves.jpg" alt="Leaves"> | <img src="docs/screenshots/effect-sakura.jpg" alt="Sakura"> |
 | **Snow**: settles on window tops and the ground, slides off when you fling a window | **Leaves**: pile up and scatter when you brush the pointer through them | **Sakura**: petals drift down and rest on your windows for a while |
 | <img src="docs/screenshots/effect-fireflies.jpg" alt="Fireflies"> | <img src="docs/screenshots/effect-starfall.jpg" alt="Starfall"> | <img src="docs/screenshots/effect-rain.jpg" alt="Rain"> |
-| **Fireflies**: drift about and gather where the pointer rests | **Starfall**: shooting stars that burst into sparks on your windows | **Rain**: splashes where it lands, with lightning now and then |
+| **Fireflies**: drift about and gather where the pointer rests | **Starfall**: shooting stars that burst into sparks on your windows | **Rain**: falls in layers, gathers on window tops and pours off their ends, puddles on the ground, with forked lightning now and then |
 
 Scroll on the bar icon to flip through them, or `flurry effect sakura`.
 

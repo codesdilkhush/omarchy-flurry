@@ -396,3 +396,54 @@ test("surfaceAt finds the front window under a point", () => {
   assert.equal(S.surfaceAt(w, 150, 150), "back")
   assert.equal(S.surfaceAt(w, 900, 600), null)
 })
+
+test("rain gathers on a window top and pours off both ends, clear of the window, then drains", () => {
+  const w = S.createWorld(1400, 900, { effect: "rain", intensity: 1.5, groundInset: 0 })
+  const rects = [{ id: "a", x: 300, y: 300, w: 600, h: 300, floating: false, z: 0 }]
+  for (let t = 0; t < 20; t += 1 / 60) { S.setSurfaces(w, rects, w.time); S.step(w, 1 / 60, {}) }
+  const a = w.surfaces.a
+  assert.ok(a.water > 5, `film ${a.water}`)
+  assert.ok(a.pourGeo && a.pourGeo[0] && a.pourGeo[1], "a stream off each end")
+  assert.ok(a.pourGeo[0].x0 < 300 && a.pourGeo[1].x0 > 900, "the streams start outside the window")
+  const drips = w.particles.filter(p => p.kind === "drip")
+  assert.ok(drips.length > 0, "the streams break into drops")
+  assert.ok(drips.every(p => p.x < 300 || p.x > 900 || p.y > 600), "no drop falls over the window")
+  assert.ok(w.wet > 0.5, "storm light")
+  S.setEffect(w, "snow")
+  for (let t = 0; t < 30; t += 1 / 60) { S.setSurfaces(w, rects, w.time); S.step(w, 1 / 60, {}) }
+  assert.ok(!a.pour && !a.water, "dry again")
+})
+
+test("a dry window top soaks up the first rain: water starts running off only after a while and builds up", () => {
+  const w = S.createWorld(1920, 1080, { effect: "rain", intensity: 1, groundInset: 0 })
+  const rects = [{ id: "a", x: 500, y: 300, w: 900, h: 400, floating: false, z: 0 }]
+  const flow = () => { const a = w.surfaces.a; return a.pour ? a.pour[0] + a.pour[1] : 0 }
+  const at = {}
+  for (let t = 0; t < 20; t += 1 / 60) {
+    S.setSurfaces(w, rects, w.time); S.step(w, 1 / 60, {})
+    for (const s of [3, 8, 18]) if (at[s] === undefined && t >= s) at[s] = flow()
+  }
+  assert.ok(!(w.surfaces.a.pourGeo && at[3] > 1), `nothing pours at first (${at[3]})`)
+  assert.ok(at[8] > at[3] && at[18] > 2 * at[8], `it builds up: ${at[3]} ${at[8]} ${at[18]}`)
+  // A window opened later in the rain starts dry too.
+  rects.push({ id: "b", x: 100, y: 800, w: 300, h: 200, floating: false, z: 1 })
+  for (let t = 0; t < 2; t += 1 / 60) { S.setSurfaces(w, rects, w.time); S.step(w, 1 / 60, {}) }
+  const b = w.surfaces.b
+  assert.ok(!b.pour || b.pour[0] + b.pour[1] < 0.5, "a new window does not pour at once")
+})
+
+test("a stream that falls onto a window below waters it in turn", () => {
+  const w = S.createWorld(1400, 900, { effect: "rain", intensity: 1.5, groundInset: 0 })
+  const rects = [{ id: "a", x: 300, y: 300, w: 400, h: 200, floating: false, z: 0 },
+                 { id: "b", x: 690, y: 360, w: 400, h: 300, floating: false, z: 1 }]
+  for (let t = 0; t < 20; t += 1 / 60) { S.setSurfaces(w, rects, w.time); S.step(w, 1 / 60, {}) }
+  const g = w.surfaces.a.pourGeo[1]
+  assert.ok(g && g.reaches && g.len < 80, "the right-hand stream lands on b")
+})
+
+test("lightning forks", () => {
+  const w = S.createWorld(1400, 900, { effect: "rain", groundInset: 0 })
+  let forks = 0
+  for (let i = 0; i < 20; i++) forks += S.makeBolt(w).branches.length
+  assert.ok(forks > 0)
+})
