@@ -435,29 +435,30 @@ PanelWindow {
     return false
   }
 
-  function groundTop(x) {
+  function groundTop(x, half) {
     var tick = heapTick
-    var y = world ? Sim.restingY(world, Sim.GROUND_ID, x) : null
+    var y = world ? Sim.restingYUnder(world, Sim.GROUND_ID, x, half || 0) : null
     return y === null ? groundY : y
   }
 
   // Feet position for a saved place, or null when it rides a window that is
   // not in view on this screen right now (on another workspace, hidden,
   // behind another window, or gone: checkRiders puts those down).
-  function feetFor(place) {
+  // `half` is how far the thing's base reaches either side of its feet.
+  function feetFor(place, half) {
     var tick = heapTick
     var rects = windowRects
     if (place.windowAddress || place.windowClass) {
       var r = place.windowAddress ? rectFor(place.windowAddress) : null
       if (!r) return null
       var x = r.x + place.windowFx * r.w
-      var top = world ? Sim.restingY(world, r.id, x) : r.y
+      var top = world ? Sim.restingYUnder(world, r.id, x, half || 0) : r.y
       var y = top === null ? r.y : top
       if (world && Sim.surfaceCovered(world, r.id, x, y - 4)) return null
       return { x: x, y: y, surface: r.id }
     }
     var fx = place.fx * width
-    return { x: fx, y: place.fy >= 0.999 ? groundTop(fx) : place.fy * groundY, surface: "" }
+    return { x: fx, y: place.fy >= 0.999 ? groundTop(fx, half) : place.fy * groundY, surface: "" }
   }
 
   // Where something dropped at feet (x, y) belongs. A snowman let go just

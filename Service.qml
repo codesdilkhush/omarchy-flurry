@@ -809,7 +809,7 @@ Item {
     if (scene) scene.trainDeliver(gift)
     else deliverAt(gift, { screen: "", fx: 0.5, fy: 1 })
     notify(gift.kind === "note" ? "A note from " + who : "A gift from " + who,
-           gift.kind === "note" ? gift.note : "The little train just dropped it off.")
+           gift.note || "The little train just dropped it off.")
   }
 
   // Called by the scene once the train has stopped, with where it stopped.
@@ -822,7 +822,12 @@ Item {
       update(function(s) { s.trees.push(t) })
     } else {
       addGift(place, { kind: gift.kind === "note" ? "note" : "gift", from: gift.from, note: gift.note })
+      return
     }
+    // A note that came with a snowman or a tree is left beside it as a
+    // letter, so it can still be read once the notification is gone.
+    if (gift.note) addGift(Object.assign({}, place, { fx: Math.min(0.97, (place.fx || 0.5) + 0.05) }),
+                           { kind: "note", from: gift.from, note: gift.note })
   }
 
   // ---------------------------------------------------------- the environment
