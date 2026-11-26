@@ -47,10 +47,11 @@ Rectangle {
         Column {
           anchors.centerIn: parent
           spacing: 2
-          Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.glyph; font.pixelSize: 18 }
+          Text { anchors.horizontalCenter: parent.horizontalCenter; textFormat: Text.PlainText; text: modelData.glyph; font.pixelSize: 18 }
           Text {
             id: label
             anchors.horizontalCenter: parent.horizontalCenter
+            textFormat: Text.PlainText
             text: modelData.id === "tree" ? modelData.label + " " + (root.service ? root.service.saved.trees.length : 0) + "/3" : modelData.label
             color: Commons.Color.popups.text
             font.family: Style.font.family
@@ -73,6 +74,7 @@ Rectangle {
       color: Commons.Color.accent
       Text {
         anchors.centerIn: parent
+        textFormat: Text.PlainText
         text: "Done"
         color: Commons.Color.background
         font.family: Style.font.family

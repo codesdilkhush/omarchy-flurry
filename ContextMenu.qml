@@ -48,6 +48,7 @@ Rectangle {
         Text {
           anchors.verticalCenter: parent.verticalCenter
           x: 10
+          textFormat: Text.PlainText
           text: modelData.label
           color: modelData.action === "remove" ? Commons.Color.urgent : Commons.Color.popups.text
           font.family: Style.font.family

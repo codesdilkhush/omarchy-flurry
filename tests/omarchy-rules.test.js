@@ -85,10 +85,31 @@ test("a scene that throws every frame starts afresh instead of throwing for the 
   assert.match(src, /sceneWin\.stepFailures = 0/)
 })
 
-test("untrusted text in the panel is plain text", () => {
-  const src = read("Widget.qml")
-  assert.match(src, /component PlainText: Text \{\s*textFormat: Text\.PlainText/)
-  assert.ok(!/\bText \{/.test(src.replace("component PlainText: Text {", "")), "a bare Text {} that could render rich text")
+test("untrusted text in the panel and scenes is plain text", () => {
+  const widget = read("Widget.qml")
+  assert.match(widget, /component PlainText: Text \{\s*textFormat: Text\.PlainText/)
+  assert.ok(!/\bText \{/.test(widget.replace("component PlainText: Text {", "")), "a bare Text {} that could render rich text")
+  for (const f of ["ContextMenu.qml", "SceneWindow.qml", "Toolbar.qml"]) {
+    const src = read(f)
+    for (const m of src.matchAll(/\bText\s*\{[^}]*\}/g)) {
+      assert.match(m[0], /textFormat:\s*Text\.PlainText/, `${f}: Text {} missing textFormat: Text.PlainText`)
+    }
+  }
+})
+
+test("remote and clipboard processes never use unbounded StdioCollector or newline SplitParser", () => {
+  const src = read("Service.qml")
+  for (const id of ["pasteProc", "inboxProc", "geoProc", "weatherProc"]) {
+    const idx = src.indexOf("id: " + id)
+    assert.ok(idx > 0, id + " missing")
+    const block = src.slice(idx, idx + 900)
+    assert.doesNotMatch(block, /StdioCollector/, id + " must not use unbounded StdioCollector")
+    assert.match(block, /splitMarker:\s*""/, id + " must read raw chunks via splitMarker: \"\"")
+  }
+  const evStart = src.indexOf("function onRawEvent(event)")
+  assert.ok(evStart > 0, "onRawEvent missing")
+  const rawEv = src.slice(evStart, evStart + 500)
+  assert.match(rawEv, /if \(!root\.showing\) return/, "Hyprland raw events must bail when !root.showing")
 })
 
 // Hyprland answers "cursorpos" with no newline and then closes its end.
