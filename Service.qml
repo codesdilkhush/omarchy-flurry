@@ -1802,7 +1802,7 @@ Item {
   function notify(title, body) {
     // Omarchy's own notifications where they are; notify-send elsewhere.
     Quickshell.execDetached(["sh", "-c",
-      "if command -v omarchy-notification-send >/dev/null 2>&1; then exec omarchy-notification-send --app-name Flurry -g \"$3\" -- \"$1\" \"$2\"; "
+      "if command -v omarchy-notification-send >/dev/null 2>&1; then exec omarchy-notification-send --app-name Flurry -g \"$3\" \"$1\" \"$2\"; "
       + "else exec notify-send -a Flurry -i weather-snow -- \"$1\" \"$2\"; fi",
       "flurry-notify", String(title), String(body || ""), String.fromCodePoint(0xF0717)])
   }
