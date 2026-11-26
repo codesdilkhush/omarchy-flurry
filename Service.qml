@@ -24,6 +24,8 @@ Item {
   property string omarchyPath: ""
 
   readonly property string pluginId: manifest && manifest.id ? manifest.id : "itscallssh.flurry"
+  Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
+  function tr(key) { return strings.t(key) }
 
   // ------------------------------------------------------------------ state
 
@@ -433,28 +435,46 @@ Item {
     // so the answer is never older than the last event.
     property bool again: false
     property real startedAt: 0
+    property var collector: Policy.newCollector(262144)
     command: ["hyprctl", "-j", "clients"]
-    onExited: if (again) { again = false; root.readClients() }
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var list = null
-        try { list = JSON.parse(String(text || "")) } catch (e) { list = null }
-        if (!(list instanceof Array)) return
-        var live = {}
-        for (var i = 0; i < list.length; i++) if (list[i] && list[i].address) live[root.addrKey(list[i].address)] = true
-        // A window this says exists, that closed before this read began,
-        // is a new window at a reused address. One that closed while the
-        // read ran is closed: the reply is older than the event.
-        var closed = root.closedWindows, changed = false, nextClosed = Object.assign({}, closed)
-        for (var k in live) {
-          if (!nextClosed[k]) continue
-          if (nextClosed[k] < clientsProc.startedAt) { delete nextClosed[k]; changed = true }
-          else delete live[k]
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (!Policy.collectChunk(clientsProc.collector, chunk)) {
+          console.warn("flurry: hyprctl clients output exceeded 256 KiB; aborting")
+          clientsProc.running = false
         }
-        if (changed) root.closedWindows = nextClosed
-        root.liveWindows = live
-        root.windowEpoch++
       }
+    }
+    stderr: SplitParser { splitMarker: ""; onRead: function() {} }
+    onExited: function(code) {
+      var c = clientsProc.collector
+      clientsProc.collector = Policy.newCollector(262144)
+      if (code === 0 && !c.overflowed) {
+        var list = null
+        try { list = JSON.parse(c.buf) } catch (e) { list = null }
+        if (list instanceof Array) {
+          var live = {}
+          for (var i = 0; i < list.length; i++) if (list[i] && list[i].address) live[root.addrKey(list[i].address)] = true
+          // A window this says exists, that closed before this read began,
+          // is a new window at a reused address. One that closed while the
+          // read ran is closed: the reply is older than the event.
+          var closed = root.closedWindows, changed = false, nextClosed = Object.assign({}, closed)
+          for (var k in live) {
+            if (!nextClosed[k]) continue
+            if (nextClosed[k] < clientsProc.startedAt) { delete nextClosed[k]; changed = true }
+            else delete live[k]
+          }
+          if (changed) root.closedWindows = nextClosed
+          root.liveWindows = live
+          root.windowEpoch++
+        } else {
+          console.warn("flurry: hyprctl clients returned unexpected output")
+        }
+      } else if (code !== 0) {
+        console.warn("flurry: hyprctl clients exited with code " + code)
+      }
+      if (again) { again = false; root.readClients() }
     }
   }
   Timer {
@@ -473,6 +493,7 @@ Item {
     onTriggered: if (!clientsProc.running) root.readClients()
   }
   function readClients() {
+    clientsProc.collector = Policy.newCollector(262144)
     clientsProc.startedAt = Date.now()
     clientsProc.running = true
   }
@@ -534,17 +555,30 @@ Item {
   property int windowBorder: 2
   property bool borderRead: false
   onShowingChanged: if (showing && !borderRead) readBorder()
-  function readBorder() { borderRead = true; if (!borderProc.running) borderProc.running = true }
+  function readBorder() {
+    borderRead = true
+    if (borderProc.running) return
+    borderProc.collector = Policy.newCollector(4096)
+    borderProc.running = true
+  }
   Process {
     id: borderProc
+    property var collector: Policy.newCollector(4096)
     command: ["hyprctl", "-j", "getoption", "general:border_size"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var o = null
-        try { o = JSON.parse(String(text || "")) } catch (e) { o = null }
-        var b = o ? Number(o.int !== undefined ? o.int : o.value) : NaN
-        if (isFinite(b) && b >= 0 && b <= 20) root.windowBorder = Math.round(b)
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (!Policy.collectChunk(borderProc.collector, chunk)) borderProc.running = false
       }
+    }
+    onExited: function(code) {
+      var c = borderProc.collector
+      borderProc.collector = Policy.newCollector(4096)
+      if (code !== 0 || c.overflowed) return
+      var o = null
+      try { o = JSON.parse(c.buf) } catch (e) { o = null }
+      var b = o ? Number(o.int !== undefined ? o.int : o.value) : NaN
+      if (isFinite(b) && b >= 0 && b <= 20) root.windowBorder = Math.round(b)
     }
   }
   Connections {
@@ -879,13 +913,20 @@ Item {
   Process {
     id: identityProc
     property string name: ""
+    property var collector: Policy.newCollector(256)
     command: ["sh", "-c", "od -An -tx1 -N16 /dev/urandom | tr -d ' \\n'"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var id = String(text || "").trim()
-        if (!/^[a-f0-9]{32}$/.test(id)) { root.notify("Couldn't set up friends", "No randomness from /dev/urandom."); return }
-        root.update(function(s) { s.identity = { id: id, name: identityProc.name } })
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (!Policy.collectChunk(identityProc.collector, chunk)) identityProc.running = false
       }
+    }
+    onExited: function(code) {
+      var c = identityProc.collector
+      identityProc.collector = Policy.newCollector(256)
+      var id = code === 0 && !c.overflowed ? c.buf.trim() : ""
+      if (!/^[a-f0-9]{32}$/.test(id)) { root.notify("Couldn't set up friends", "No randomness from /dev/urandom."); return }
+      root.update(function(s) { s.identity = { id: id, name: identityProc.name } })
     }
   }
 
@@ -894,6 +935,8 @@ Item {
       if (name) update(function(s) { s.identity.name = String(name).slice(0, 40) })
       return
     }
+    if (identityProc.running) return
+    identityProc.collector = Policy.newCollector(256)
     identityProc.name = String(name || Quickshell.env("USER") || "Me").slice(0, 40)
     identityProc.running = true
   }
@@ -962,8 +1005,9 @@ Item {
     root.outbox = root.outbox.slice(1)
     sendProc.environment = { FLURRY_URL: root.saved.server + "/" + next.topic, FLURRY_BODY: next.body }
     sendProc.command = ["bash", "-c",
-      "printf '%s' \"$FLURRY_BODY\" | exec curl -sS -f -m 20 --connect-timeout 10 --proto =https --proto-redir =https --max-redirs 0 "
-      + "-H 'Content-Type: application/json' -H 'Cache: yes' --config <(printf 'url = \"%s\"\\n' \"$FLURRY_URL\") --data-binary @-"]
+      "exec curl -sS -f -m 20 --connect-timeout 10 --proto =https --proto-redir =https --max-redirs 0 "
+      + "-H 'Content-Type: application/json' -H 'Cache: yes' "
+      + "--config <(printf 'url = \"%s\"\\n' \"$FLURRY_URL\") --data-binary @<(printf '%s' \"$FLURRY_BODY\")"]
     sendProc.running = true
   }
   Process {
@@ -1044,8 +1088,14 @@ Item {
     if (!ev) return
     root.inboxBackoff = 5
     if (ev.type !== "gift") return
+    if (ev.gift.kind === "snowball") {
+      root.receive(ev.gift)
+      if (ev.id) root.update(function(s) { s.inboxSince = ev.id })
+      return
+    }
+    if (ev.id) ev.gift.inboxId = ev.id
     if (root.receiveGiftAllowed(ev.gift)) root.receive(ev.gift)
-    if (ev.id) root.update(function(s) { s.inboxSince = ev.id })
+    else if (ev.id) root.update(function(s) { s.inboxSince = ev.id })
   }
 
   function startInbox() {
@@ -1054,8 +1104,8 @@ Item {
     inboxProc.stream = Policy.newLineStream(Store.MAX_INBOX_LINE)
     inboxProc.environment = { FLURRY_URL: url }
     inboxProc.command = ["sh", "-c",
-      "printf 'url = \"%s\"\\n' \"$FLURRY_URL\" | exec curl -sS -f -N --no-buffer --connect-timeout 10 --limit-rate 64K "
-      + "--proto =https --proto-redir =https --max-redirs 0 --speed-limit 1 --speed-time 180 --config -"]
+      "exec curl -sS -f -N --no-buffer --connect-timeout 10 --limit-rate 64K "
+      + "--proto =https --proto-redir =https --max-redirs 0 --speed-limit 1 --speed-time 180 --config - <<EOF\nurl = \"$FLURRY_URL\"\nEOF"]
     inboxProc.running = true
   }
 
@@ -1101,29 +1151,29 @@ Item {
   function receive(gift) {
     if (gift.kind === "snowball") { catchSnowball(gift); return }
     var scene = focusedScene()
-    var who = gift.from + (gift.known ? "" : " (not in your friends)")
     if (scene) scene.trainDeliver(gift)
     else deliverAt(gift, { screen: "", fx: 0.5, fy: 1 })
-    notify(gift.kind === "note" ? "A note from " + who : "A gift from " + who,
-           gift.note || "The little train just dropped it off.")
   }
 
   // Called by the scene once the train has stopped, with where it stopped.
   function deliverAt(gift, place) {
+    var who = gift.from + (gift.known ? "" : " (not in your friends)")
     if (gift.kind === "snowman" && root.saved.snowmen.length < Store.MAX_SNOWMEN) {
       addSnowman(place, { scarf: gift.art.scarf, size: gift.art.size, from: gift.from, outfit: gift.art.outfit || { nose: true, scarf: true, hat: true } })
+      if (gift.note) addGift(Object.assign({}, place, { fx: Math.min(0.97, (place.fx || 0.5) + 0.05) }),
+                             { kind: "note", from: gift.from, note: gift.note })
     } else if (gift.kind === "tree" && root.saved.trees.length < Store.MAX_TREES) {
       var t = Store.normalizeTree({ place: place, star: gift.art.star, size: gift.art.size,
-                                    ornaments: gift.art.ornaments, planted: 0 })
+                                    ornaments: gift.art.ornaments, planted: Date.now() })
       update(function(s) { s.trees.push(t) })
+      if (gift.note) addGift(Object.assign({}, place, { fx: Math.min(0.97, (place.fx || 0.5) + 0.05) }),
+                             { kind: "note", from: gift.from, note: gift.note })
     } else {
       addGift(place, { kind: gift.kind === "note" ? "note" : "gift", from: gift.from, note: gift.note })
-      return
     }
-    // A note that came with a snowman or a tree is left beside it as a
-    // letter, so it can still be read once the notification is gone.
-    if (gift.note) addGift(Object.assign({}, place, { fx: Math.min(0.97, (place.fx || 0.5) + 0.05) }),
-                           { kind: "note", from: gift.from, note: gift.note })
+    if (gift.inboxId) root.update(function(s) { s.inboxSince = gift.inboxId })
+    notify(gift.kind === "note" ? "A note from " + who : "A gift from " + who,
+           gift.note || "The little train just dropped it off.")
   }
 
   // ---------------------------------------------------------- the environment
@@ -1191,18 +1241,21 @@ Item {
 
   property int weatherFailures: 0
   property string missingCity: ""          // a city the geocoder didn't know: don't ask again
+  property string weatherStatus: ""        // "", "loading", "ok", "not_found", "error"
   readonly property bool weatherWanted: root.active && root.saved.liveWeather
   readonly property bool weatherPlaced: root.saved.weatherLat !== null && root.saved.weatherLon !== null
 
   function setWeatherCity(name) {
     var city = String(name || "").trim()
     root.missingCity = ""
+    root.weatherStatus = city ? "loading" : ""
     update(function(s) { s.weatherCity = city; s.weatherLat = null; s.weatherLon = null; s.weatherPlace = ""; s.liveWeather = city !== "" || s.liveWeather })
     weatherSoon.restart()
   }
   function setWeatherLocation(lat, lon) {
     if (!Weather.validLat(lat) || !Weather.validLon(lon)) return false
     root.missingCity = ""
+    root.weatherStatus = "loading"
     update(function(s) { s.weatherLat = Number(lat); s.weatherLon = Number(lon); s.weatherCity = ""; s.weatherPlace = Number(lat).toFixed(2) + ", " + Number(lon).toFixed(2); s.liveWeather = true })
     weatherSoon.restart()
     return true
@@ -1230,6 +1283,7 @@ Item {
       if (!root.saved.weatherCity || root.saved.weatherCity === root.missingCity) return
       var gurl = Weather.geocodeUrl(root.saved.weatherCity)
       if (!gurl) return
+      root.weatherStatus = "loading"
       geoProc.collector = Policy.newCollector(Weather.MAX_RESPONSE_BYTES)
       geoProc.command = weatherCurlArgs(gurl)
       geoProc.running = true
@@ -1237,12 +1291,14 @@ Item {
     }
     var furl = Weather.forecastUrl(root.saved.weatherLat, root.saved.weatherLon)
     if (!furl) return
+    root.weatherStatus = "loading"
     weatherProc.collector = Policy.newCollector(Weather.MAX_RESPONSE_BYTES)
     weatherProc.command = weatherCurlArgs(furl)
     weatherProc.running = true
   }
   function weatherFailed() {
     root.weatherFailures++
+    root.weatherStatus = "error"
     weatherTimer.interval = Weather.retryDelay(root.weatherFailures)
     if (root.weatherWanted) weatherTimer.restart()
   }
@@ -1267,11 +1323,13 @@ Item {
       if (res.status === "error") { root.weatherFailed(); return }
       if (res.status === "not_found") {
         root.missingCity = root.saved.weatherCity
+        root.weatherStatus = "not_found"
         root.notify("Couldn't find " + root.saved.weatherCity, "Try a bigger city nearby, or `flurry location <lat> <lon>`.")
         return
       }
       var g = res.location
       root.weatherFailures = 0
+      root.weatherStatus = "ok"
       root.update(function(s) { s.weatherLat = g.lat; s.weatherLon = g.lon; s.weatherPlace = g.name })
       weatherSoon.restart()
     }
@@ -1296,6 +1354,7 @@ Item {
       var cur = Weather.parseCurrent(c.buf)
       if (!cur) { root.weatherFailed(); return }
       root.weatherFailures = 0
+      root.weatherStatus = "ok"
       weatherTimer.interval = Weather.REFRESH_MS
       if (root.weatherWanted) weatherTimer.restart()
       root.update(function(s) { s.weatherCache = { at: Date.now(), current: cur } })
@@ -1349,17 +1408,28 @@ Item {
   // where it found a battery (a desktop is read once and left alone).
   Process {
     id: powerProc
+    property var collector: Policy.newCollector(16384)
     command: ["sh", "-c", "for d in /sys/class/power_supply/*; do [ -e \"$d/type\" ] || continue; "
                         + "printf '%s|%s|%s|%s|%s\\n' \"${d##*/}\" \"$(cat \"$d/type\" 2>/dev/null)\" \"$(cat \"$d/status\" 2>/dev/null)\" "
                         + "\"$(cat \"$d/capacity\" 2>/dev/null)\" \"$(cat \"$d/online\" 2>/dev/null)\"; done"]
-    stdout: StdioCollector { onStreamFinished: root.sysPower = Policy.parsePowerSupply(String(text || "")) }
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        if (!Policy.collectChunk(powerProc.collector, chunk)) powerProc.running = false
+      }
+    }
+    onExited: function(code) {
+      var c = powerProc.collector
+      powerProc.collector = Policy.newCollector(16384)
+      if (code === 0 && !c.overflowed) root.sysPower = Policy.parsePowerSupply(c.buf)
+    }
   }
   Timer {
     interval: 60000
     repeat: true
     running: root.active && !root.upowerBattery && (!root.sysPower.known || root.sysPower.battery)
     triggeredOnStart: true
-    onTriggered: if (!powerProc.running) powerProc.running = true
+    onTriggered: if (!powerProc.running) { powerProc.collector = Policy.newCollector(16384); powerProc.running = true }
   }
 
   // ---------------------------------------------------------- calm

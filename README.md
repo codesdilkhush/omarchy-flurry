@@ -23,6 +23,13 @@ A snowflake lands on the right of your bar. Click it, pick a weather, and get ba
 Requires Omarchy 4 (Quattro) or later. Gifts between friends also use `curl` and
 `wl-clipboard`, which Omarchy ships.
 
+Optional: for compositor-anchored window snow/frost/icicles with zero drag lag (see [`hyprland-plugin/`](hyprland-plugin/README.md)):
+
+```bash
+hyprpm add https://github.com/itscallssh/omarchy-flurry
+hyprpm enable flurry-anchor
+```
+
 ### Removing
 
 ```bash

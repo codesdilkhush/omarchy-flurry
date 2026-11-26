@@ -97,13 +97,16 @@ test("untrusted text in the panel and scenes is plain text", () => {
   }
 })
 
-test("remote and clipboard processes never use unbounded StdioCollector or newline SplitParser", () => {
+test("no QML process uses unbounded StdioCollector and remote streams read raw chunks", () => {
+  const fs = require("fs"), path = require("path")
+  for (const f of fs.readdirSync(root).filter(x => x.endsWith(".qml"))) {
+    assert.doesNotMatch(read(f), /\bStdioCollector\b/, f + " must not use unbounded StdioCollector")
+  }
   const src = read("Service.qml")
-  for (const id of ["pasteProc", "inboxProc", "geoProc", "weatherProc"]) {
+  for (const id of ["pasteProc", "inboxProc", "geoProc", "weatherProc", "clientsProc", "borderProc", "identityProc", "powerProc"]) {
     const idx = src.indexOf("id: " + id)
     assert.ok(idx > 0, id + " missing")
     const block = src.slice(idx, idx + 900)
-    assert.doesNotMatch(block, /StdioCollector/, id + " must not use unbounded StdioCollector")
     assert.match(block, /splitMarker:\s*""/, id + " must read raw chunks via splitMarker: \"\"")
   }
   const evStart = src.indexOf("function onRawEvent(event)")
